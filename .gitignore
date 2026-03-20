@@ -213,4 +213,4 @@ __marimo__/
 client_secret*
 token.json
 config.toml
-
+.state.lock
