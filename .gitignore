@@ -212,5 +212,5 @@ __marimo__/
 # Secrets
 client_secret*
 token.json
-
+config.toml
 
