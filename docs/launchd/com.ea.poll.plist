@@ -5,36 +5,33 @@
   EA poll agent — runs one poll cycle every 5 minutes.
 
   SETUP (one time):
-    1. Copy or symlink this file to ~/Library/LaunchAgents/
+    1. Copy this file to ~/Library/LaunchAgents/
          cp docs/launchd/com.ea.poll.plist ~/Library/LaunchAgents/
 
-    2. Edit the four CHANGEME values below:
-         PROJECT_DIR  — absolute path to this repo, e.g. /Users/you/projects/ea
-         VENV_PYTHON  — absolute path to .venv/bin/python inside the repo
-         ANTHROPIC_API_KEY — your key (or use a .env loader; see note below)
+    2. Replace the three CHANGEME values:
+         CHANGEME_VENV_PYTHON       absolute path, e.g. /Users/you/projects/ea/.venv/bin/python
+         CHANGEME_PROJECT_DIR       absolute path, e.g. /Users/you/projects/ea
+         CHANGEME_ANTHROPIC_API_KEY your sk-ant-... key
 
     3. Load and start:
          launchctl load ~/Library/LaunchAgents/com.ea.poll.plist
          launchctl start com.ea.poll
 
   USEFUL COMMANDS:
-    launchctl list com.ea.poll          # check status / last exit code
-    launchctl stop com.ea.poll          # stop immediately
+    launchctl list com.ea.poll                              # check status / last exit code
+    launchctl stop com.ea.poll                              # stop immediately
     launchctl unload ~/Library/LaunchAgents/com.ea.poll.plist   # remove
 
   LOGS:
-    Structured JSON lines → PROJECT_DIR/ea.log
-    launchd stderr (startup errors) → PROJECT_DIR/ea-launchd.err
+    Structured JSON lines  -> PROJECT_DIR/ea.log
+    launchd stderr (startup errors) -> PROJECT_DIR/ea-launchd.err
 
   NOTE ON API KEY:
-    Embedding the key in the plist stores it in plain text.  A safer option
-    is to keep the key in ~/.ea-env and load it via a wrapper script:
-
-      #!/bin/bash
-      source ~/.ea-env          # exports ANTHROPIC_API_KEY
-      exec /path/to/.venv/bin/python /path/to/ea.py poll --quiet
-
-    Then set ProgramArguments to just ["/path/to/wrapper.sh"].
+    Embedding the key in the plist stores it in plain text in ~/Library/LaunchAgents/.
+    That directory is readable only by your user account, which is acceptable for a
+    personal machine.  If you prefer not to store it there, use the install script
+    (scripts/install-launchd.sh) — if ~/.ea-env exists it will automatically use a
+    wrapper script that sources the key instead of embedding it here.
 -->
 <plist version="1.0">
 <dict>
@@ -42,26 +39,24 @@
   <key>Label</key>
   <string>com.ea.poll</string>
 
-  <!-- Run poll --quiet every 300 seconds (5 minutes).
-       Adjust StartInterval to match poll_interval_seconds in config.toml. -->
+  <!-- Run one poll cycle every 300 seconds (5 minutes).
+       Keep this in sync with poll_interval_seconds in config.toml. -->
   <key>StartInterval</key>
   <integer>300</integer>
 
   <key>ProgramArguments</key>
   <array>
-    <string>CHANGEME_VENV_PYTHON</string>  <!-- e.g. /Users/you/projects/ea/.venv/bin/python -->
-    <string>CHANGEME_PROJECT_DIR/ea.py</string>  <!-- e.g. /Users/you/projects/ea/ea.py -->
+    <string>CHANGEME_VENV_PYTHON</string>
+    <string>CHANGEME_PROJECT_DIR/ea.py</string>
     <string>poll</string>
     <string>--quiet</string>
   </array>
 
   <!-- Must match the project root so config.toml / state.json / token.json are found. -->
   <key>WorkingDirectory</key>
-  <string>CHANGEME_PROJECT_DIR</string>  <!-- e.g. /Users/you/projects/ea -->
+  <string>CHANGEME_PROJECT_DIR</string>
 
-  <!-- All structured logging goes to ea.log in the project directory.
-       stdout is suppressed by --quiet.  stderr here catches Python startup
-       errors before logging is configured (e.g. missing venv, import errors). -->
+  <!-- stdout suppressed by --quiet; stderr captures Python startup errors. -->
   <key>StandardOutPath</key>
   <string>/dev/null</string>
   <key>StandardErrorPath</key>
