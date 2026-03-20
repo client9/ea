@@ -153,6 +153,30 @@ class TestOnlyMyEmail:
         ]
         assert _find_ea_trigger_in_messages(msgs, MY_EMAIL) == "block Friday 3-4pm"
 
+    def test_spoofed_substring_address_ignored(self):
+        """attacker+me@example.com must not match my_email=me@example.com."""
+        spoofed = f"Totally Legit <attacker+{MY_EMAIL}>"
+        msgs = [_msg("EA: do something", "EA: do something", from_addr=spoofed)]
+        assert _find_ea_trigger_in_messages(msgs, MY_EMAIL) is None
+
+    def test_spoofed_display_name_ignored(self):
+        """Display name containing my address must not trigger."""
+        spoofed = f"{MY_EMAIL} <attacker@evil.com>"
+        msgs = [_msg("EA: do something", "EA: do something", from_addr=spoofed)]
+        assert _find_ea_trigger_in_messages(msgs, MY_EMAIL) is None
+
+    def test_my_address_in_display_name_form_triggers(self):
+        """Legitimate display-name form should still work."""
+        display = f"Nick G <{MY_EMAIL}>"
+        msgs = [_msg("EA: block Friday 3-4pm", "", from_addr=display)]
+        assert _find_ea_trigger_in_messages(msgs, MY_EMAIL) == "block Friday 3-4pm"
+
+    def test_subdomain_spoof_ignored(self):
+        """me@example.com.evil.com must not match me@example.com."""
+        spoofed = f"me@{MY_EMAIL.split('@')[1]}.evil.com"
+        msgs = [_msg("EA: do something", "EA: do something", from_addr=spoofed)]
+        assert _find_ea_trigger_in_messages(msgs, MY_EMAIL) is None
+
 
 # ---------------------------------------------------------------------------
 # No trigger cases

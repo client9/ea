@@ -14,6 +14,7 @@ injected, making the loop fully testable without real APIs.
 import logging
 import re
 from datetime import datetime, timezone as tz_utc
+from email.utils import parseaddr
 
 from ea.gmail import thread_to_text
 from ea.responder import (
@@ -331,7 +332,8 @@ def _find_ea_trigger_in_messages(messages, my_email: str) -> str | None:
     """
     subject_cmd = None
     for msg in messages:
-        if my_email.lower() not in msg.from_addr.lower():
+        _, addr = parseaddr(msg.from_addr)
+        if addr.lower() != my_email.lower():
             continue
 
         # Body scan — strip quoted lines (lines starting with >) first
