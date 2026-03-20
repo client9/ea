@@ -103,6 +103,8 @@ class CalendarClient:
         attendees: list[str],
         location: str = None,
         self_email: str = None,
+        all_day: bool = False,
+        transparency: str = "opaque",
     ) -> dict:
         """
         Create a calendar event and send invites to attendees.
@@ -112,18 +114,30 @@ class CalendarClient:
         calendar. When self_email is the only attendee, sendUpdates is set
         to 'none' (no invite email for a solo block).
 
+        all_day: when True, start/end are YYYY-MM-DD date strings (end is
+        exclusive per Google Calendar convention). No timeZone field is sent.
+        transparency: "opaque" (busy) or "transparent" (free/informational).
+
         In fixture mode, records the event in self.events_created for assertions.
         In live mode, calls events.insert with sendUpdates='all'/'none'.
         """
         if self.fixture_data is not None or self.fixture_path:
+            if all_day:
+                start_field = {"date": start}
+                end_field   = {"date": end}
+            else:
+                start_field = {"dateTime": start}
+                end_field   = {"dateTime": end}
             event = {
                 "id": f"fixture-event-{len(self.events_created) + 1}",
                 "status": "confirmed",
                 "summary": topic,
-                "start": start,
-                "end": end,
+                "start": start_field,
+                "end": end_field,
                 "attendees": attendees,
             }
+            if all_day:
+                event["transparency"] = transparency
             if location:
                 event["location"] = location
             self.events_created.append(event)
@@ -137,19 +151,27 @@ class CalendarClient:
                 return entry
 
             solo = self_email and [a.lower() for a in attendees] == [self_email.lower()]
+            if all_day:
+                start_field = {"date": start}
+                end_field   = {"date": end}
+            else:
+                start_field = {"dateTime": start, "timeZone": "UTC"}
+                end_field   = {"dateTime": end,   "timeZone": "UTC"}
             body: dict = {
                 "summary": topic,
-                "start": {"dateTime": start},
-                "end":   {"dateTime": end},
+                "start": start_field,
+                "end":   end_field,
                 "attendees": [_attendee(a) for a in attendees],
             }
+            if all_day:
+                body["transparency"] = transparency
             if location:
                 body["location"] = location
             event = call_with_retry(
                 lambda: self._service.events().insert(
                     calendarId="primary",
                     body=body,
-                    sendUpdates="none" if solo else "all",
+                    sendUpdates="none" if (solo or all_day) else "all",
                 ).execute()
             )
             self.events_created.append(event)
@@ -180,11 +202,17 @@ class CalendarClient:
             t_max = datetime.fromisoformat(time_max.replace("Z", "+00:00"))
             result = []
             for ev in self._fixture_events:
-                raw = (ev.get("start") or {}).get("dateTime", "")
+                start_obj = ev.get("start") or {}
+                raw = start_obj.get("dateTime") or start_obj.get("date", "")
                 if not raw:
                     continue
                 try:
-                    ev_start = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                    # All-day events have date-only strings; treat them as midnight UTC
+                    if "T" not in raw:
+                        from datetime import timezone as _tz
+                        ev_start = datetime.fromisoformat(raw).replace(tzinfo=_tz.utc)
+                    else:
+                        ev_start = datetime.fromisoformat(raw.replace("Z", "+00:00"))
                 except ValueError:
                     continue
                 if t_min <= ev_start < t_max:

@@ -122,6 +122,9 @@ Tests use `FakeGmailClient` (in-memory), `CalendarClient(fixture_data=...)`, and
 - `proposed_times`: list of `{"text": "...", "datetimes": ["ISO 8601 UTC", ...]}`. Each `datetimes` entry is one distinct start time (e.g. "at 3 or 5pm" → two entries).
 - `new_proposed_times`: same shape as `proposed_times`; populated for `reschedule` intent only (the new desired time). Always present, empty list if not applicable.
 - `duration_minutes`, `location`, `timezone`, `urgency`
+- `all_day`: `true` for all-day / multi-day events; `false` (default) for timed events
+- `event_type`: `"ooo"` | `"vacation"` | `"conference"` | `"holiday"` | `"block"` | `null` — all-day event subtype; null for timed events. Opaque types (block scheduling): `ooo`, `vacation`, `block`. Transparent types (informational, still free): `conference`, `holiday`.
+- `proposed_times[*].datetimes`: UTC ISO 8601 strings for timed events; `YYYY-MM-DD` local date strings for all-day events. For all-day ranges, two date entries: `[start_date, end_date_inclusive]`.
 - `attendees`: only for `meeting_request` and `suggest_times`
 - `ambiguities`: only for `meeting_request`
 

@@ -306,6 +306,109 @@ def handle_block_time_result(
 
 
 # ---------------------------------------------------------------------------
+# Inbound: handle an all-day or multi-day block_time result
+# ---------------------------------------------------------------------------
+
+_TRANSPARENT_EVENT_TYPES = {"conference", "holiday"}
+_DEFAULT_ALLDAY_TOPICS = {
+    "ooo":        "Out of Office",
+    "vacation":   "Vacation",
+    "conference": None,   # use parsed topic
+    "holiday":    None,   # use parsed topic
+    "block":      "All Day Block",
+}
+
+
+def handle_allday_block(
+    parsed: dict,
+    original_thread,
+    gmail,
+    calendar,
+    config: dict,
+) -> str:
+    """
+    Create an all-day or multi-day calendar block from a parsed all_day=True result.
+
+    Bypasses working-hours and confirmation checks entirely — OOO/vacation events
+    are always created regardless of time-of-day rules.
+    """
+    from datetime import date, timedelta
+
+    my_email  = config["user"]["email"]
+    thread_id = original_thread.id
+    subject   = original_thread.messages[0].subject
+
+    # Extract start (and optional inclusive end) date strings
+    proposed = parsed.get("proposed_times") or []
+    if not proposed or not proposed[0].get("datetimes"):
+        gmail.send_email(
+            to=my_email,
+            subject=f"EA: needs more info — {subject}",
+            body="EA could not determine the date(s) for the all-day event. Please specify a date.",
+            thread_id=thread_id,
+        )
+        gmail.apply_label(thread_id, "ea-notified")
+        return "notified-ambiguous"
+
+    dates = proposed[0]["datetimes"]
+    start_date = dates[0]
+    end_date_inclusive = dates[1] if len(dates) >= 2 else start_date
+    # Google Calendar end date is exclusive
+    end_date_exclusive = (
+        date.fromisoformat(end_date_inclusive) + timedelta(days=1)
+    ).isoformat()
+
+    event_type   = (parsed.get("event_type") or "block").lower()
+    transparency = "transparent" if event_type in _TRANSPARENT_EVENT_TYPES else "opaque"
+
+    default_topic = _DEFAULT_ALLDAY_TOPICS.get(event_type)
+    topic = parsed.get("topic") or default_topic or "All Day Block"
+
+    try:
+        calendar.create_event(
+            topic=topic,
+            start=start_date,
+            end=end_date_exclusive,
+            attendees=[my_email],
+            self_email=my_email,
+            all_day=True,
+            transparency=transparency,
+        )
+    except Exception as e:
+        gmail.send_email(
+            to=my_email,
+            subject=f"EA: calendar error — {subject}",
+            body=f"EA tried to create an all-day event but the calendar API returned an error:\n\n{e}",
+            thread_id=thread_id,
+        )
+        gmail.apply_label(thread_id, "ea-notified")
+        return "calendar-error"
+
+    # Format a human-readable date description for the confirmation email
+    if start_date == end_date_inclusive:
+        date_desc = _format_date(start_date)
+    else:
+        date_desc = f"{_format_date(start_date)} – {_format_date(end_date_inclusive)}"
+
+    visibility = "informational (free)" if transparency == "transparent" else "blocking (busy)"
+    gmail.send_email(
+        to=my_email,
+        subject=f"EA: blocked — {topic}",
+        body=f"All-day event added to your calendar ({visibility}):\n\n  {date_desc}\n  {topic}",
+        thread_id=thread_id,
+    )
+    gmail.apply_label(thread_id, "ea-scheduled")
+    return "scheduled"
+
+
+def _format_date(iso_date: str) -> str:
+    """Format a YYYY-MM-DD string as 'Monday Mar 23, 2026'."""
+    from datetime import date
+    d = date.fromisoformat(iso_date)
+    return d.strftime("%A %b %d, %Y")
+
+
+# ---------------------------------------------------------------------------
 # Outbound: handle a suggest_times EA: trigger
 # ---------------------------------------------------------------------------
 

@@ -66,7 +66,7 @@ the original thread and state is written as `pending_external_reply` — the
 same flow as `suggest_times`. If no alternatives exist, the owner is notified
 as before ("conflict found, no alternatives in next 7 days").
 
-### 6. All-day and multi-day events (out of office)
+### 6. All-day and multi-day events (out of office) ✅ DONE
 EA currently only creates timed events with a start and end time. All-day and
 multi-day events are a distinct Google Calendar type and cover several common
 requests the parser will see today but cannot handle:

@@ -15,7 +15,7 @@ SYSTEM_PROMPT = """You are an assistant that parses five types of input:
 
 1. Inbound meeting requests — an email thread where someone asks to meet and the user has replied with an "EA:" command such as "EA: please schedule" or "EA: find a time on Friday".
 2. Outbound time suggestions — the user has added an "EA:" command such as "EA: suggest some times to meet" or "EA: suggest some times on Friday for a 1 hour meeting". The email may be to someone else OR self-addressed (the user wants a list of their own availability). No times are proposed in the thread; the EA will find slots on the user's calendar.
-3. Self-directed calendar blocks — a standalone message from the user to themselves with an "EA:" command such as "EA: block Thursday 12-1pm for lunch".
+3. Self-directed calendar blocks — a standalone message from the user to themselves with an "EA:" command such as "EA: block Thursday 12-1pm for lunch". Also handles all-day and multi-day events: "EA: mark Monday as out of office", "EA: vacation next week", "EA: add PyCon April 15-17 (informational, still free)".
 4. Cancel event — the user wants to cancel an existing calendar event: "EA: cancel my 2pm meeting with Sarah on Friday" or "EA: cancel Thursday standup".
 5. Reschedule event — the user wants to move an existing event to a new time: "EA: move my Thursday standup to Friday at 4pm" or "EA: reschedule my 2pm call with Bob to next Tuesday at 3pm".
 
@@ -25,10 +25,12 @@ Return a JSON object with the following fields:
   "intent": "meeting_request" | "suggest_times" | "block_time" | "cancel_event" | "reschedule" | "none",
   "topic": "meeting purpose, block label, or title of the existing event to find",
   "attendees": ["email addresses or names of the OTHER people — omit the user themselves; empty for block_time"],
+  "all_day": true or false,
+  "event_type": "ooo" | "vacation" | "conference" | "holiday" | "block" | null,
   "proposed_times": [
     {
       "text": "the original natural language phrase, e.g. 'Thursday at 2pm EST' or 'at 3 or 5pm'",
-      "normalized": ["simple English time expressions — one per distinct START time in this phrase. Break compound expressions into individual items. Examples: 'Thursday at 2pm' → ['Thursday at 2pm']; 'Thursday at 1 or 3pm' → ['Thursday at 1pm', 'Thursday at 3pm']; 'Next Thursday or Friday at 2pm' → ['Next Thursday at 2pm', 'Next Friday at 2pm']; 'Friday 1-2pm' → ['Friday at 1pm'] (duration goes in duration_minutes, not here)"]
+      "normalized": ["simple English time/date expressions. For timed events: one per distinct START time (e.g. 'Thursday at 2pm'). For all-day events: one or two date phrases — the start date, and optionally the end date for ranges (e.g. 'Monday through Friday' → ['Monday', 'Friday']; 'next week Monday' → ['next Monday', 'next Friday']; 'Monday' → ['Monday']). Break compound timed expressions into individual items."]
     }
   ],
   "new_proposed_times": [
@@ -49,11 +51,32 @@ Rules:
 - For block_time: attendees is empty; proposed_times holds the block window.
 - For cancel_event: proposed_times holds the approximate time of the existing event (to find it on the calendar). attendees is empty or holds people in the event. new_proposed_times is empty.
 - For reschedule: proposed_times holds the existing event's current time. new_proposed_times holds the new desired time. duration_minutes is the new duration if specified, else null (keep existing).
+- For all-day events (all_day=true): duration_minutes is null. proposed_times[0].normalized contains the start date phrase and, if a range, the end date phrase as the second element. event_type captures the nature: "ooo" for out-of-office, "vacation" for vacation/holiday leave, "conference" for external conference, "holiday" for public holiday, "block" for generic blocking.
+- For informational all-day events mentioned as "still free", "informational", "transparent", or "no conflicts" — set event_type to "conference" or "holiday" as appropriate. These appear free in scheduling.
 - Return ONLY valid JSON. No explanation, no markdown, no code fences.
 - Set intent to "none" if the text is none of the above types.
 - In normalized: keep expressions in plain English (e.g. "Next Friday at 1pm"). Do NOT convert to dates or UTC. A separate system handles that conversion.
 - new_proposed_times should always be present in the JSON (empty list [] if not applicable).
+- all_day and event_type should always be present (all_day defaults to false, event_type defaults to null for timed events).
 """
+
+
+def _normalized_to_dates(phrases: list[str], tz_name: str, now) -> list[str]:
+    """
+    Convert plain-English date phrases (e.g. 'Next Monday') to local date strings
+    (YYYY-MM-DD) using parsedatetime. Used for all-day events where time is irrelevant.
+    """
+    import parsedatetime
+    from zoneinfo import ZoneInfo
+
+    tz = ZoneInfo(tz_name)
+    cal = parsedatetime.Calendar()
+    results = []
+    for phrase in phrases:
+        dt, status = cal.parseDT(phrase, sourceTime=now, tzinfo=tz)
+        if status:
+            results.append(dt.astimezone(tz).date().isoformat())
+    return results
 
 
 def _normalized_to_utc(phrases: list[str], tz_name: str, now) -> list[str]:
@@ -132,10 +155,14 @@ def parse_meeting_request(text: str, tz_name: str = "UTC") -> dict:
             "raw_response": raw
         }
 
-    # Convert normalized phrases → UTC datetimes for both time fields.
+    # Convert normalized phrases → datetimes (UTC for timed events, local dates for all-day).
+    all_day = parsed.get("all_day", False)
     for entry in parsed.get("proposed_times") or []:
         normalized = entry.pop("normalized", None) or []
-        entry["datetimes"] = _normalized_to_utc(normalized, tz_name, now_local)
+        if all_day:
+            entry["datetimes"] = _normalized_to_dates(normalized, tz_name, now_local)
+        else:
+            entry["datetimes"] = _normalized_to_utc(normalized, tz_name, now_local)
 
     for entry in parsed.get("new_proposed_times") or []:
         normalized = entry.pop("normalized", None) or []

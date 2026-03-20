@@ -130,15 +130,19 @@ def run_poll(
                     find_slots_fn=find_slots_fn,
                 )
             elif intent == "block_time":
-                result = evaluate_parsed(
-                    parsed=parsed,
-                    working_hours=working_hours,
-                    preferred_hours=preferred_hours,
-                    timezone=timezone_name,
-                    calendar=calendar,
-                    my_email=my_email,
-                )
-                action = handle_block_time_result(result, thread, gmail, calendar, state, config)
+                if parsed.get("all_day"):
+                    from ea.responder import handle_allday_block
+                    action = handle_allday_block(parsed, thread, gmail, calendar, config)
+                else:
+                    result = evaluate_parsed(
+                        parsed=parsed,
+                        working_hours=working_hours,
+                        preferred_hours=preferred_hours,
+                        timezone=timezone_name,
+                        calendar=calendar,
+                        my_email=my_email,
+                    )
+                    action = handle_block_time_result(result, thread, gmail, calendar, state, config)
             elif intent == "meeting_request":
                 result = evaluate_parsed(
                     parsed=parsed,
