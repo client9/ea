@@ -294,12 +294,35 @@ def run_poll(
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+_REPLY_PREFIX_RE = re.compile(r'^(?:Re|Fwd?|AW|WG):\s*', re.IGNORECASE)
+_QUOTED_LINE_RE  = re.compile(r'^>.*$', re.MULTILINE)
+
+
 def _find_ea_trigger_in_messages(messages, my_email: str) -> str | None:
-    """Scan messages for an EA: command from my_email."""
+    """Scan messages from my_email for an EA: command.
+
+    Body is checked first (quoted lines stripped so a prior EA: command in a
+    reply chain doesn't re-fire). Subject is checked as a fallback, but only
+    when it starts directly with 'EA:' — subjects that begin with Re:/Fwd:/etc.
+    are ignored so reply threads on an EA-subject email don't re-trigger.
+    """
+    subject_cmd = None
     for msg in messages:
         if my_email.lower() not in msg.from_addr.lower():
             continue
-        match = re.search(r'EA:\s*(.+)', msg.body, re.IGNORECASE)
+
+        # Body scan — strip quoted lines (lines starting with >) first
+        clean_body = _QUOTED_LINE_RE.sub("", msg.body)
+        match = re.search(r'EA:\s*(.+)', clean_body, re.IGNORECASE)
         if match:
             return match.group(1).strip()
-    return None
+
+        # Subject scan — only on first qualifying message; skip reply prefixes
+        if subject_cmd is None:
+            subject = msg.subject.strip()
+            if not _REPLY_PREFIX_RE.match(subject):
+                match = re.match(r'EA:\s*(.+)', subject, re.IGNORECASE)
+                if match:
+                    subject_cmd = match.group(1).strip()
+
+    return subject_cmd
