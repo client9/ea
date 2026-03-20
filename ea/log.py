@@ -32,7 +32,7 @@ class _JsonlHandler(logging.FileHandler):
         }
         if record.exc_info:
             entry["exc"] = self.formatException(record.exc_info)
-        for key in ("thread_id", "action", "intent", "topic"):
+        for key in ("thread_id", "action", "intent", "topic", "to"):
             val = getattr(record, key, None)
             if val is not None:
                 entry[key] = val

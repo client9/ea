@@ -12,6 +12,7 @@ tests use injected lambdas instead.
 
 import json
 import os
+import re
 
 import anthropic
 
@@ -78,6 +79,11 @@ def classify_confirmation_reply(
             messages=[{"role": "user", "content": reply_text}],
         )
     ).content[0].text.strip()
+
+    if raw.startswith("```"):
+        raw = re.sub(r'^```(?:json)?\s*', '', raw)
+        raw = re.sub(r'\s*```\s*$', '', raw)
+        raw = raw.strip()
 
     try:
         classification = json.loads(raw)
@@ -188,6 +194,11 @@ def classify_external_reply(
             messages=[{"role": "user", "content": context}],
         )
     ).content[0].text.strip()
+
+    if raw.startswith("```"):
+        raw = re.sub(r'^```(?:json)?\s*', '', raw)
+        raw = re.sub(r'\s*```\s*$', '', raw)
+        raw = raw.strip()
 
     try:
         classification = json.loads(raw)

@@ -91,7 +91,15 @@ def run_once(
             dry_run=dry_run,
         )
         total = sum(len(v) for v in summary.values())
-        log.info(f"Poll cycle complete — {total} action(s)")
+        if total:
+            parts = [
+                f"{pass_name}:[{','.join(i['action'] for i in items)}]"
+                for pass_name, items in summary.items()
+                if items
+            ]
+            log.info("Poll cycle complete — %s", " ".join(parts))
+        else:
+            log.info("Poll cycle complete — nothing to process")
         return summary
     except Exception as exc:
         from ea.network import is_transient_error

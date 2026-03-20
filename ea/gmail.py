@@ -12,10 +12,13 @@ Interface (both live and fake implement):
 """
 
 import base64
+import logging
 from dataclasses import dataclass, field
 from email.mime.text import MIMEText
 
 from ea.network import call_with_retry
+
+_log = logging.getLogger("ea.gmail")
 
 
 @dataclass
@@ -137,6 +140,10 @@ class LiveGmailClient:
         Send an email.  If thread_id is given, the message is sent as a reply
         on that thread.  Returns the sent message as a GmailMessage.
         """
+        _log.debug(
+            "send_email to=%r subject=%r thread_id=%r", to, subject, thread_id,
+            extra={"to": to, "thread_id": thread_id},
+        )
         mime = MIMEText(body)
         mime["To"] = to
         mime["From"] = "me"

@@ -77,6 +77,7 @@ def run_poll(
     timezone_name = schedule.get("timezone", "UTC")
 
     summary = {"pass1": [], "pass2": [], "pass3": [], "expired": []}
+    _log = logging.getLogger("ea.poll")
 
     # ------------------------------------------------------------------
     # Expiry check — runs before passes so expired entries are removed
@@ -93,13 +94,15 @@ def run_poll(
             )
             gmail.apply_label(thread_id, "ea-expired")
             state.delete(thread_id)
+        _log.info(
+            "expired %s: %s", thread_id, topic or "(no topic)",
+            extra={"thread_id": thread_id, "action": "expired", "topic": topic},
+        )
         summary["expired"].append(_item(
             thread_id, "expired",
             state_type=entry.get("type"),
             topic=topic,
         ))
-
-    _log = logging.getLogger("ea.poll")
 
     # ------------------------------------------------------------------
     # Pass 1 — New EA: triggers
@@ -197,6 +200,11 @@ def run_poll(
             topic  = subject
             action = "error"
 
+        _log.info(
+            "pass1 %s: %s (intent=%s topic=%r subject=%r)",
+            thread.id, action, intent, topic, subject,
+            extra={"thread_id": thread.id, "action": action, "intent": intent, "topic": topic},
+        )
         summary["pass1"].append(_item(
             thread.id, action,
             intent=intent,
@@ -242,6 +250,12 @@ def run_poll(
             )
             action = "error"
 
+        _log.info(
+            "pass2 %s: %s (topic=%r)",
+            thread_id, action, entry.get("schedule_result", {}).get("topic"),
+            extra={"thread_id": thread_id, "action": action,
+                   "topic": entry.get("schedule_result", {}).get("topic")},
+        )
         summary["pass2"].append(_item(
             thread_id, action,
             state_type="pending_confirmation",
@@ -285,6 +299,11 @@ def run_poll(
             )
             action = "error"
 
+        _log.info(
+            "pass3 %s: %s (topic=%r)",
+            thread_id, action, entry.get("topic"),
+            extra={"thread_id": thread_id, "action": action, "topic": entry.get("topic")},
+        )
         summary["pass3"].append(_item(
             thread_id, action,
             state_type="pending_external_reply",

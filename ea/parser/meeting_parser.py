@@ -6,6 +6,7 @@ and calendar blocking commands using the Claude API.
 """
 
 import os
+import re
 import json
 import anthropic
 
@@ -146,6 +147,12 @@ def parse_meeting_request(text: str, tz_name: str = "UTC") -> dict:
     )
 
     raw = message.content[0].text.strip()
+
+    # Strip markdown code fences the model occasionally adds despite instructions.
+    if raw.startswith("```"):
+        raw = re.sub(r'^```(?:json)?\s*', '', raw)
+        raw = re.sub(r'\s*```\s*$', '', raw)
+        raw = raw.strip()
 
     try:
         parsed = json.loads(raw)

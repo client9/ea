@@ -131,11 +131,87 @@ EA: out of office April 10th through April 14th
 EA: add PyCon April 15-17 (informational, still free)
 ```
 
+### 7. Calendly link detection and slot matching
+When an external party replies to a scheduling thread and includes a Calendly
+URL (`https://calendly.com/...`), EA should fetch their available slots,
+cross-reference them against the owner's Google Calendar freebusy, and either
+book a matching slot automatically or surface the best options.
+
+**Why it matters:** Calendly links in replies are the dominant "here's my
+availability" pattern in professional email. Without this, EA ignores the link
+and the owner has to click through manually — defeating the purpose.
+
+**How Calendly's public API works (no auth required):**
+Calendly scheduling pages load availability from a public JSON endpoint that
+requires no API key:
+```
+GET https://calendly.com/api/booking/event_types/{uuid}/calendar/range
+    ?timezone=America/Los_Angeles&range_start=2026-03-20&range_end=2026-03-27
+```
+The response contains a list of available spots with `start_time` / `end_time`
+in UTC. This is the same call the browser makes when you open a Calendly link —
+it's stable and publicly accessible.
+
+The event type UUID is embedded in the Calendly URL:
+`https://calendly.com/username/event-name` → resolve to UUID via a redirect or
+the public event type lookup endpoint.
+
+**Flow:**
+1. **Detect** — in Pass 3 (`pending_external_reply`), before checking for a
+   plain-text slot confirmation, scan the reply body for a Calendly URL with
+   a regex like `r'https://calendly\.com/[\w/-]+'`.
+2. **Fetch** — `GET` the Calendly availability API for the next 7 days (the
+   same lookahead window used by `find_slots`). Parse the available slots.
+3. **Cross-reference** — call `get_freebusy` on the owner's calendar over the
+   same window. Filter Calendly slots to those where the owner is also free.
+4. **Act** — three sub-cases:
+   - **One free slot** — book it via Calendly's booking API (if available) or
+     email the external party confirming that time. Apply `ea-scheduled`.
+   - **Multiple free slots** — pick the best (preferred hours first), book or
+     confirm it. Optionally email the owner: "EA booked via their Calendly."
+   - **No overlap** — notify the owner: "Their Calendly has no times that work
+     on your calendar. Here are your next available slots: [list]." Write
+     `pending_external_reply` state with fresh slots.
+
+**Booking via Calendly API:**
+Calendly's v2 API (`api.calendly.com`) requires an API key from the *owner*
+of the event type — which we don't have for an external party's link. The
+practical path for auto-booking is to POST to the public booking endpoint the
+scheduling page uses, or fall back to emailing the external party with the
+chosen slot ("I'd like to book the Thursday 2pm slot on your Calendly") and
+letting them confirm it on their end. The simpler fallback is always safe; the
+full auto-booking can be added later once the API story is clearer.
+
+**Config (optional):**
+```toml
+[integrations]
+calendly_enabled  = true    # set false to disable Calendly detection entirely
+calendly_auto_book = false  # true: attempt to POST the booking; false: email confirmation only
+```
+
+**Implementation:**
+- `ea/calendly.py` — new module. `extract_calendly_url(text) -> str | None`,
+  `fetch_slots(url, tz_name, lookahead_days) -> list[dict]` (same
+  `{start, end}` shape as `find_slots` output). Isolated so it can be
+  stubbed in tests.
+- `ea/poll.py` — Pass 3 processing: before the existing reply-classification
+  logic, check `extract_calendly_url(reply_text)`. If found, call
+  `fetch_slots` and `_cross_reference(calendly_slots, owner_freebusy)` then
+  dispatch.
+- `ea/responder.py` — new `handle_calendly_match(slots, entry, gmail,
+  calendar, state, config)` handler for the three sub-cases above.
+- No parser changes needed — Calendly detection is purely in the poll loop.
+
+**Testing:**
+`fetch_slots` is injectable (pass a stub returning canned slot dicts) so the
+full flow can be covered without network calls, consistent with the pattern
+used for the parser and classifier.
+
 ---
 
 ## Medium Impact — Quality of Life
 
-### 7. Daily / weekly digest
+### 8. Daily / weekly digest
 A scheduled email (not triggered by a thread) summarizing upcoming meetings.
 Needs a new entry point — either a cron trigger or a CLI command:
 
