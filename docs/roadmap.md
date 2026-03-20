@@ -66,11 +66,76 @@ the original thread and state is written as `pending_external_reply` — the
 same flow as `suggest_times`. If no alternatives exist, the owner is notified
 as before ("conflict found, no alternatives in next 7 days").
 
+### 6. All-day and multi-day events (out of office)
+EA currently only creates timed events with a start and end time. All-day and
+multi-day events are a distinct Google Calendar type and cover several common
+requests the parser will see today but cannot handle:
+
+- `"EA: mark Monday as out of office"`
+- `"EA: block next week, I'm on vacation"`
+- `"EA: add a conference day on April 10th (informational, still free)"`
+
+**Two sub-types:**
+
+- **Blocking all-day** — `transparency: "opaque"` (the default). The day shows
+  as busy in freebusy queries. Used for OOO, vacation, sick days, travel days.
+- **Informational all-day** — `transparency: "transparent"`. The day shows
+  as free in freebusy queries but the event is visible on the calendar. Used
+  for conferences, public holidays, reminders.
+
+Google Calendar represents all-day events with `date` fields (not `dateTime`):
+```json
+"start": {"date": "2026-04-10"},
+"end":   {"date": "2026-04-11"}   // exclusive end — one day past the last day
+```
+Multi-day events span multiple consecutive dates; the end `date` is the day
+*after* the last day (e.g. Mon–Fri vacation: start `2026-04-06`, end `2026-04-11`).
+
+**Parser changes:**
+- Add `"all_day": true | false` field to the output schema.
+- Add `"event_type": "ooo" | "vacation" | "conference" | "holiday" | "block"`
+  as a hint for setting transparency and the event title when none is given.
+- Existing `proposed_times` carries the date range: `datetimes` will contain
+  one or two entries (start date, end date). The parser should emit date-only
+  ISO strings (`"2026-04-10"`) for all-day events rather than datetimes with
+  a time component.
+- `block_time` intent is reused for blocking all-day events; `"all_day": true`
+  distinguishes the case. OOO and vacation always imply `block_time`.
+
+**Scheduler / freebusy interaction:**
+When `all_day=true`, `check_slot` and `find_slots` must treat all-day opaque
+events in freebusy results as conflicts (they already appear in the freebusy
+response). Informational all-day events are transparent and do not block
+slot-finding — this is already correct behavior since freebusy only returns
+opaque events.
+
+**`CalendarClient.create_event` changes:**
+- Accept `all_day: bool = False` and `end_date: str = None` parameters.
+- When `all_day=True`, build `start/end` with `date` keys instead of
+  `dateTime`; omit the `timeZone` field (all-day events have no timezone in
+  the Google API).
+- Set `transparency` from the `event_type` hint: `"ooo"` / `"vacation"` /
+  `"block"` → `"opaque"`; `"conference"` / `"holiday"` → `"transparent"`.
+
+**`handle_block_time_result` changes:**
+Detect `all_day=True` in the parsed dict and call `create_event` with the new
+parameters. Working-hours and preferred-hours checks are skipped for all-day
+events (they are not time-slot-based). The `needs_confirmation` path is also
+skipped — OOO events should never require after-hours approval.
+
+**Example commands:**
+```
+EA: I'm out of office Monday
+EA: mark next week as vacation (Mon-Fri)
+EA: out of office April 10th through April 14th
+EA: add PyCon April 15-17 (informational, still free)
+```
+
 ---
 
 ## Medium Impact — Quality of Life
 
-### 6. Daily / weekly digest
+### 7. Daily / weekly digest
 A scheduled email (not triggered by a thread) summarizing upcoming meetings.
 Needs a new entry point — either a cron trigger or a CLI command:
 
@@ -81,7 +146,7 @@ python ea.py digest --week   # send this week's agenda
 
 Reads from `CalendarClient.list_events` and formats a plain-text summary.
 
-### 7. Timezone-aware invite bodies ✅ DONE
+### 8. Timezone-aware invite bodies ✅ DONE
 When the attendee's timezone (from `parsed["timezone"]`) differs from the
 owner's, both times now appear in every scheduling email.
 
@@ -92,7 +157,7 @@ owner's, both times now appear in every scheduling email.
 - `attendee_tz` is saved to state so counter-proposal resends also use it.
 - When timezones match (or attendee tz is unknown), single-tz format is used.
 
-### 8. Meeting duration defaults by topic type
+### 9. Meeting duration defaults by topic type
 When the parser can't determine duration, fall back to a config-driven default
 based on detected meeting type rather than failing with an ambiguity.
 
@@ -108,7 +173,7 @@ default      = 30
 Parser returns a `meeting_type` hint; responder looks up the default before
 treating missing duration as an ambiguity.
 
-### 9. Group scheduling (multiple attendees)
+### 10. Group scheduling (multiple attendees)
 `get_freebusy` already accepts multiple attendees, but the parser and responder
 only handle one external attendee today. Allow the parser to return multiple
 `attendees` and thread them through `find_slots` and `create_event`.
@@ -116,12 +181,12 @@ only handle one external attendee today. Allow the parser to return multiple
 Main work: `handle_suggest_times_trigger` and `handle_inbound_result` currently
 assume a single attendee when composing the reply.
 
-### 10. Waitlist / retry after busy
+### 11. Waitlist / retry after busy
 When `outcome="busy"`, offer to find alternatives. Reply to the thread owner:
 "All proposed times are taken. Reply 'yes' and I'll suggest some open slots."
 Writes a lightweight `pending_confirmation` state with `action="find_slots"`.
 
-### 10a. Slot validity monitoring during pending_external_reply
+### 11a. Slot validity monitoring during pending_external_reply
 While waiting for the external party to confirm one of the offered time slots,
 periodically verify that the suggested slots are still free. If the owner's
 calendar fills up before a reply arrives, the confirmed slot could conflict with
@@ -159,7 +224,7 @@ owner's calendar. Three cases:
 **Config (optional):** a `check_slot_validity = true` flag under `[schedule]`
 to opt out if the extra freebusy call per pending entry is undesirable.
 
-### 10b. Pending reply reminders
+### 11b. Pending reply reminders
 While waiting for a response (either from the owner on a `pending_confirmation`
 or from the external party on a `pending_external_reply`), periodically send a
 nudge if no reply has arrived.
@@ -226,7 +291,7 @@ window:
   `reminder_interval_hours` ago and `reminder_count < reminder_max_count`,
   call `send_reminder`. No reply processing needed — reminders are one-way.
 
-### 10c. Duplicate meeting detection
+### 11c. Duplicate meeting detection
 Before booking a new meeting, check whether an existing calendar event already
 involves the same attendee(s) within a nearby time window. If a likely duplicate
 is found, warn the owner before proceeding rather than silently creating a
@@ -295,7 +360,80 @@ duplicate_require_confirm = true # false = warn-only, never block booking
 
 ## Lower Impact — Polish
 
-### 11. Calendar event descriptions
+### 12. Custom email footer
+Append a configurable text block to every outgoing EA email (scheduling
+suggestions, booking confirmations, confirmation requests to the owner, etc.).
+Useful for disclosing that messages are AI-generated or asking recipients for
+patience during testing.
+
+```toml
+[user]
+email_footer = "I'm testing an AI scheduling assistant — please bear with any
+rough edges."
+```
+
+If `email_footer` is absent or empty, no footer is appended (current behavior
+preserved).
+
+**Implementation:**
+- `ea/responder.py` — one helper `_append_footer(body: str, config: dict) -> str`
+  that appends `"\n\n---\n{footer}"` when the config key is present. All
+  `send_email` calls in `responder.py` and `poll.py` pass the body through this
+  helper before sending.
+- No parser or state changes needed.
+
+### 13. EA command in email subject ✅ DONE
+Currently EA only scans the message body for `EA:` commands. When sending
+yourself a quick command, the subject is a natural place to put it — write
+`EA: schedule coffee with bob@example.com Thursday 2pm` as the subject and
+leave the body blank (or write a note to yourself there).
+
+**Proposed behavior:** when `_find_ea_trigger_in_messages` finds no `EA:`
+command in any message body, also check each message's subject line using the
+same pattern. Subject-line commands are treated identically to body commands —
+the text after `EA:` becomes the trigger, and the full thread body is still
+passed to the parser for attendee/context extraction.
+
+**Edge cases — what must NOT trigger:**
+
+- **`Re:` / `Fwd:` prefixes.** When anyone replies to a thread whose subject
+  is `EA: schedule coffee...`, the reply subject becomes `Re: EA: schedule
+  coffee...`. This must not be treated as a new command. Rule: only match
+  `EA:` when it appears at the very start of the subject after stripping
+  leading whitespace. A subject that starts with `Re:`, `Fwd:`, `Fw:`, or any
+  other reply/forward prefix before `EA:` is ignored.
+
+- **Quoted body text.** When a reply includes quoted previous messages (lines
+  prefixed with `>` in plain text, or inline quoted blocks), the body scan
+  could re-match an `EA:` command from an earlier message in the thread. Rule:
+  strip quoted lines (lines beginning with `>`) from a message body before
+  scanning it. This applies to both the existing body scan and the new subject
+  scan — it's a latent bug that this feature makes more visible.
+
+- **Already-labeled threads.** Once EA applies any label (`ea-scheduled`,
+  `ea-notified`, `ea-cancelled`, `ea-expired`), Pass 1 won't pick the thread
+  up again. This already handles the case where EA processes the original
+  command and a reply arrives later — the label gates re-entry before the
+  subject check is even reached.
+
+- **Thread has pending state.** If a thread is already in `pending_confirmation`
+  or `pending_external_reply` state, Pass 1 is bypassed entirely (those threads
+  go to Pass 2/3). No special handling needed.
+
+**Implementation:**
+- `ea/poll.py` — `_find_ea_trigger_in_messages`:
+  1. Strip quoted lines (`^>.*`) from each message body before the body regex
+     scan (fixes the latent re-quote bug).
+  2. After the body scan returns `None`, do a second pass over messages from
+     `my_email` checking `msg.subject`. Only match if the subject starts with
+     `EA:` after stripping reply/forward prefixes — use a regex like
+     `r'^(?:Re|Fwd?|AW|WG):\s*'` (case-insensitive) to detect and skip
+     prefixed subjects.
+- `ea/triggers.py` — `find_ea_trigger` takes pre-flattened text; subject lines
+  are already included by `thread_to_text`, so no change needed there.
+- No parser, state, or config changes needed.
+
+### 14. Calendar event descriptions
 Created events currently have no description body. Populate it with:
 - The original email thread snippet
 - The EA: command that triggered it
@@ -303,19 +441,19 @@ Created events currently have no description body. Populate it with:
 
 Small addition to `create_event` calls in `responder.py`.
 
-### 12. Decline on behalf
+### 15. Decline on behalf
 When the owner writes "EA: decline" on an inbound thread, send a polite
 decline email to the sender and apply `ea-cancelled`. New intent value
 `decline` in the parser, new handler in `responder.py`.
 
-### 13. Hold / tentative blocks
+### 16. Hold / tentative blocks
 "EA: hold Thursday 2-4pm for prep" — creates an event with
 `transparency: "transparent"` so the owner sees it but it doesn't block
 others' scheduling. Useful for protecting focus time.
 
 New intent or a modifier on `block_time`: `block_type = "hold" | "hard"`.
 
-### 14. Smart expiry — configurable window and deadline-aware
+### 17. Smart expiry — configurable window and deadline-aware
 **Current behavior:** expiry is a hardcoded 48-hour fixed window (`EXPIRY_HOURS = 48`
 in `responder.py`). Every time state is written, `_expiry()` stamps
 `now + 48h` as `expires_at`. The expiry check at the top of each poll cycle
@@ -382,7 +520,7 @@ The "retry" option writes a new `pending_confirmation` state with
 - `ea/poll.py` — expiry email body replaced with the richer template above;
   "retry" keyword detected and dispatched to `find_slots`.
 
-### 15. `ea status` command ✅ DONE
+### 18. `ea status` command ✅ DONE
 CLI command that prints all pending state entries as a human-readable table.
 
 ```
@@ -400,7 +538,7 @@ THREAD           TYPE                    TOPIC              ATTENDEES           
 Implemented in `ea.py` (`_run_status()`). Reads from `StateStore.all()`.
 Expiry shown as relative time (e.g. `12h 2m`, `6d 3h`, `EXPIRED`).
 
-### 16. Ignore / dismiss a request
+### 19. Ignore / dismiss a request
 An escape hatch for dropping any pending scheduling request without taking
 action. Useful when a reply asks for more information and the owner just wants
 to walk away from it, or when EA misidentified a thread and created state that
@@ -450,7 +588,7 @@ when debugging via `ea status`.
 
 ## Bigger Swings
 
-### 17. Proactive availability — no EA: command needed
+### 20. Proactive availability — no EA: command needed
 
 Detect when an inbound email is asking for availability ("when are you free
 next week?") without an explicit `EA:` command. Classify with a lightweight
@@ -460,14 +598,14 @@ Requires a pre-filter classifier before the `EA:` trigger check in Pass 1.
 Risk: false positives. Needs a confidence threshold and a config flag to
 opt in.
 
-### 18. Slack / iMessage integration
+### 21. Slack / iMessage integration
 Same `EA:` command syntax, different ingestion layer. The poll loop,
 responder, and scheduler are reusable as-is.
 
 - Slack: poll a DM channel via Slack API; reply in-thread
 - iMessage: harder — no official API; would require Shortcuts or AppleScript
 
-### 19. Smart no-meeting window protection
+### 22. Smart no-meeting window protection
 Detect calendar fragmentation (many short gaps) and proactively suggest
 blocking focus time. Could run as part of the weekly digest or as a
 separate `ea protect` command.
