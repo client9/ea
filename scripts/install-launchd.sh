@@ -5,16 +5,15 @@
 # Run from the project root:  bash scripts/install-launchd.sh
 #
 # What it does:
-#   1. Fills in PROJECT_DIR and VENV_PYTHON in the plist template.
-#   2. Copies the filled plist to ~/Library/LaunchAgents/.
-#   3. Prompts for ANTHROPIC_API_KEY (stored in ~/Library/LaunchAgents/ plist —
+#   1. Fills in PROJECT_DIR and VENV_PYTHON in the plist.
+#   2. Writes the filled plist to ~/Library/LaunchAgents/.
+#   3. Prompts for ANTHROPIC_API_KEY (stored in the plist —
 #      or, if ~/.ea-env exists, uses a wrapper that sources it instead).
 #   4. Loads the agent.
 
 set -euo pipefail
 
 LABEL="com.ea.poll"
-PLIST_SRC="docs/launchd/com.ea.poll.plist"
 PLIST_DST="$HOME/Library/LaunchAgents/${LABEL}.plist"
 PROJECT_DIR="$(pwd)"
 VENV_PYTHON="${PROJECT_DIR}/.venv/bin/python"
@@ -32,7 +31,7 @@ if [[ ! -f "${VENV_PYTHON}" ]]; then
 fi
 
 if [[ ! -f "config.toml" ]]; then
-  echo "ERROR: config.toml not found. Copy config.toml.example and fill it in." >&2
+  echo "ERROR: config.toml not found. Copy the example from docs/install-macos.md and fill it in." >&2
   exit 1
 fi
 
@@ -66,30 +65,76 @@ fi
 mkdir -p "$HOME/Library/LaunchAgents"
 
 if [[ "${USE_ENV_FILE}" == "true" ]]; then
-  # Write a tiny wrapper script that sources ~/.ea-env
+  # Write a tiny wrapper script that sources ~/.ea-env before exec-ing python
   WRAPPER="${PROJECT_DIR}/scripts/ea-poll-wrapper.sh"
-  cat > "${WRAPPER}" <<WRAPPER_EOF
+  cat > "${WRAPPER}" << WRAPPER_EOF
 #!/usr/bin/env bash
 source "\$HOME/.ea-env"
 exec "${VENV_PYTHON}" "${PROJECT_DIR}/ea.py" poll --quiet
 WRAPPER_EOF
   chmod +x "${WRAPPER}"
 
-  # Plist runs the wrapper instead of python directly
-  sed \
-    -e "s|CHANGEME_VENV_PYTHON|${WRAPPER}|g" \
-    -e "s|CHANGEME_PROJECT_DIR/ea.py.*</string>||g" \
-    -e "s|<string>poll</string>||g" \
-    -e "s|<string>--quiet</string>||g" \
-    -e "s|CHANGEME_PROJECT_DIR|${PROJECT_DIR}|g" \
-    -e "s|CHANGEME_ANTHROPIC_API_KEY|LOADED_FROM_EA_ENV|g" \
-    "${PLIST_SRC}" > "${PLIST_DST}"
+  # Plist invokes the wrapper directly — no EnvironmentVariables needed
+  cat > "${PLIST_DST}" << PLIST_EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.ea.poll</string>
+  <key>StartInterval</key>
+  <integer>300</integer>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${WRAPPER}</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>${PROJECT_DIR}</string>
+  <key>StandardOutPath</key>
+  <string>/dev/null</string>
+  <key>StandardErrorPath</key>
+  <string>${PROJECT_DIR}/ea-launchd.err</string>
+  <key>RunAtLoad</key>
+  <true/>
+</dict>
+</plist>
+PLIST_EOF
+
 else
-  sed \
-    -e "s|CHANGEME_VENV_PYTHON|${VENV_PYTHON}|g" \
-    -e "s|CHANGEME_PROJECT_DIR|${PROJECT_DIR}|g" \
-    -e "s|CHANGEME_ANTHROPIC_API_KEY|${API_KEY}|g" \
-    "${PLIST_SRC}" > "${PLIST_DST}"
+  cat > "${PLIST_DST}" << PLIST_EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.ea.poll</string>
+  <key>StartInterval</key>
+  <integer>300</integer>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${VENV_PYTHON}</string>
+    <string>${PROJECT_DIR}/ea.py</string>
+    <string>poll</string>
+    <string>--quiet</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>${PROJECT_DIR}</string>
+  <key>StandardOutPath</key>
+  <string>/dev/null</string>
+  <key>StandardErrorPath</key>
+  <string>${PROJECT_DIR}/ea-launchd.err</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>ANTHROPIC_API_KEY</key>
+    <string>${API_KEY}</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+</dict>
+</plist>
+PLIST_EOF
 fi
 
 echo "Plist written to ${PLIST_DST}"
