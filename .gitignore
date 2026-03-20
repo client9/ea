@@ -209,3 +209,8 @@ __marimo__/
 # PYCACHE
 **/__pycache__/
 
+# Secrets
+client_secret*
+token.json
+
+
