@@ -77,6 +77,10 @@ def run_once(
     try:
         creds    = load_creds(credentials_file=credentials_file, token_file=token_file)
         gmail    = LiveGmailClient(creds)
+        footer   = config.get("user", {}).get("email_footer", "")
+        if footer:
+            from ea.gmail import FooterGmailClient
+            gmail = FooterGmailClient(gmail, footer)
         calendar = CalendarClient(creds=creds)
         state    = StateStore()
 

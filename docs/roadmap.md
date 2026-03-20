@@ -436,27 +436,25 @@ duplicate_require_confirm = true # false = warn-only, never block booking
 
 ## Lower Impact — Polish
 
-### 12. Custom email footer
-Append a configurable text block to every outgoing EA email (scheduling
-suggestions, booking confirmations, confirmation requests to the owner, etc.).
-Useful for disclosing that messages are AI-generated or asking recipients for
-patience during testing.
+### 12. Custom email footer ✅ DONE
+Appends a configurable text block to every outgoing EA email — scheduling
+suggestions, booking confirmations, conflict notifications, etc. Useful for
+disclosing that messages are AI-generated.
 
 ```toml
 [user]
-email_footer = "I'm testing an AI scheduling assistant — please bear with any
-rough edges."
+email_footer = "I'm testing an AI scheduling assistant — please bear with any rough edges."
 ```
 
 If `email_footer` is absent or empty, no footer is appended (current behavior
 preserved).
 
-**Implementation:**
-- `ea/responder.py` — one helper `_append_footer(body: str, config: dict) -> str`
-  that appends `"\n\n---\n{footer}"` when the config key is present. All
-  `send_email` calls in `responder.py` and `poll.py` pass the body through this
-  helper before sending.
-- No parser or state changes needed.
+**Implementation:** `FooterGmailClient` in `ea/gmail.py` is a decorator that
+wraps any gmail client and intercepts `send_email`, appending
+`"\n\n---\n{footer}"` before forwarding the call. All other methods delegate
+transparently via `__getattr__`. `runner.py` wraps the live client with
+`FooterGmailClient` after construction when the config key is present — one
+change point, zero changes to `responder.py` or `poll.py`.
 
 ### 13. EA command in email subject ✅ DONE
 Currently EA only scans the message body for `EA:` commands. When sending
@@ -681,7 +679,102 @@ responder, and scheduler are reusable as-is.
 - Slack: poll a DM channel via Slack API; reply in-thread
 - iMessage: harder — no official API; would require Shortcuts or AppleScript
 
-### 22. Smart no-meeting window protection
+### 22. Microsoft 365 support (Outlook + Exchange Calendar)
+Add support for Microsoft 365 as an alternative to Gmail + Google Calendar.
+The poll loop, scheduler, responder, and parser are all provider-agnostic
+today — they work through duck-typed `gmail` and `calendar` interfaces.
+Adding Microsoft support means implementing those same interfaces against
+the Microsoft Graph API, plus an auth flow for OAuth2 with Microsoft identity.
+
+**What needs abstracting:**
+
+The existing duck-typed interfaces already define the contract cleanly:
+
+*Email interface* (currently: `LiveGmailClient` / `FakeGmailClient`):
+```python
+list_threads(exclude_label_ids) -> list[Thread]
+get_thread(thread_id)           -> Thread | None
+send_email(to, subject, body, thread_id, extra_headers) -> Message
+apply_label(thread_id, label)   -> None
+```
+
+*Calendar interface* (currently: `CalendarClient`):
+```python
+get_freebusy(time_min, time_max, attendees) -> dict
+create_event(topic, start, end, attendees, ...) -> dict
+list_events(time_min, time_max)              -> list[dict]
+delete_event(event_id, send_updates)         -> None
+update_event(event_id, new_start, new_end)   -> None
+```
+
+Neither interface leaks any Google-specific types — they use plain dicts,
+strings, and the `GmailMessage` / `GmailThread` dataclasses (which would
+need to be renamed or made provider-neutral, e.g. `EmailMessage`, `EmailThread`).
+
+**New implementations needed:**
+
+- `ea/outlook.py` — `OutlookMailClient` implementing the email interface via
+  Microsoft Graph `GET /me/mailFolders/inbox/messages`, `POST /me/sendMail`,
+  `PATCH /me/messages/{id}` (for category labels). Messages and folders map
+  naturally; Graph uses `conversationId` as the thread identifier.
+- `ea/msgraph_calendar.py` — `GraphCalendarClient` implementing the calendar
+  interface via `GET /me/calendar/getSchedule` (freebusy),
+  `POST /me/events`, `DELETE /me/events/{id}`, `PATCH /me/events/{id}`.
+- `ea/auth_microsoft.py` — MSAL-based OAuth2 flow (device code or browser
+  redirect). Saves refresh token to `token_ms.json`. The `msal` package
+  handles token refresh automatically, analogous to `google-auth`.
+
+**Auth config:**
+```toml
+[provider]
+type = "google"      # or "microsoft"
+
+[auth]
+# Google (existing):
+credentials_file = "client_secret_....json"
+token_file       = "token.json"
+
+# Microsoft (new):
+client_id     = "your-azure-app-client-id"
+tenant_id     = "common"           # or specific tenant UUID
+token_file_ms = "token_ms.json"
+```
+
+**`runner.py` changes:**
+Instantiate the correct client pair based on `config["provider"]["type"]`.
+The rest of the call chain (`run_poll`, `responder`, `scheduler`) is unchanged.
+
+**Label mapping:**
+Google labels (`ea-scheduled`, `ea-notified`, etc.) map to Outlook
+**categories** (colored tags on messages/conversations). The Graph API
+supports `POST /me/outlook/masterCategories` and `PATCH /me/messages/{id}`
+to add categories — functionally equivalent.
+
+**Scope and complexity:**
+This is a significant but well-bounded effort. The hardest parts are:
+- Microsoft Graph's pagination and throttling (similar to Google's but
+  different headers and error shapes)
+- The `getSchedule` freebusy endpoint requires attendee email addresses
+  and returns availability in 30-minute slots — slightly coarser than
+  Google's freebusy; may need interpolation for short meetings
+- MSAL token refresh is automatic but the device-code flow (best for
+  headless/local use) differs from Google's browser redirect
+
+The `FakeGmailClient` and `CalendarClient(fixture_data=...)` test doubles
+remain unchanged — they test the poll loop logic, not the provider layer.
+Provider-specific tests (`test_outlook_client.py`, `test_graph_calendar.py`)
+would use recorded Graph API responses (VCR-style fixtures or hand-crafted
+dicts).
+
+**Suggested order:**
+1. Rename `GmailMessage`/`GmailThread` to provider-neutral names (or add
+   type aliases) — small, non-breaking, unblocks the rest
+2. Implement `OutlookMailClient` with tests
+3. Implement `GraphCalendarClient` with tests
+4. Add `auth_microsoft.py` + `python ea.py auth --provider microsoft`
+5. Wire into `runner.py` behind the config flag
+
+### 23. Smart no-meeting window protection
 Detect calendar fragmentation (many short gaps) and proactively suggest
 blocking focus time. Could run as part of the weekly digest or as a
 separate `ea protect` command.
@@ -1110,45 +1203,22 @@ deploying to Cloud Run.
 
 ## Security
 
-### SEC-1. Strict sender verification
-EA only acts on `EA:` commands that come from the owner's own email address
-(`config.user.email`). The current check in `_find_ea_trigger_in_messages`
-uses a substring match (`my_email.lower() in msg.from_addr.lower()`), which
-could match a spoofed sender like `attacker+nickg@example.com` or
-`nickg@example.com.evil.com`.
+### SEC-1. Strict sender verification ✅ DONE
+EA only acts on `EA:` commands from the owner's own email address
+(`config.user.email`). The old check used a substring match (`in`), which
+allowed spoofed senders like `attacker+nickg@example.com` or
+`nickg@example.com.evil.com` to inject commands.
 
-**Risks without this fix:**
-- Anyone who can send an email to the owner (or to a thread the owner is on)
-  and forge or craft a From address containing the owner's email string could
-  inject EA commands.
-- On shared Gmail environments or email forwarding setups, a forwarded message
-  could carry the owner's address in the body while originating externally.
+**Fix:** `_find_ea_trigger_in_messages` now uses `email.utils.parseaddr` to
+extract the bare address from the From header (stripping display names) and
+compares with `==`. Pass 2 and Pass 3 were already using exact `==` comparisons
+and required no changes.
 
-**Proposed hardening:**
-
-1. **Exact address extraction** — parse the From header to extract only the
-   bare email address, stripping display names:
-   ```
-   "Nick G <nickg@example.com>" → "nickg@example.com"
-   ```
-   Use `email.utils.parseaddr` (stdlib) for reliable extraction. Compare the
-   extracted address against `config.user.email` with `==` (case-insensitive),
-   not `in`.
-
-2. **Authenticated-received-chain (optional, advanced)** — Gmail's API
-   populates `Authentication-Results` headers. Parsing these to confirm
-   SPF/DKIM pass before acting on a command provides a stronger guarantee, but
-   adds complexity and may not be necessary if the inbox is personal.
-
-3. **Scope:** applies to Pass 1 only (`_find_ea_trigger_in_messages`). Pass 2
-   and Pass 3 are scoped to threads already in state — they were gated by a
-   legitimate Pass 1 trigger and are safe as-is.
-
-**Implementation:**
-- `ea/poll.py` — replace the `in` substring check with `email.utils.parseaddr`
-  extraction and `==` comparison. No new dependencies; `email.utils` is stdlib.
-- Add a test: a message whose `from_addr` is `"attacker+nickg@gmail.com"` must
-  not trigger when `my_email = "nickg@gmail.com"`.
+**Tests added** (`tests/test_subject_trigger.py`):
+- `attacker+me@example.com` → blocked
+- Display name spoof (`me@example.com <attacker@evil.com>`) → blocked
+- Subdomain spoof (`me@example.com.evil.com`) → blocked
+- Legitimate display-name form (`Nick G <me@example.com>`) → still triggers
 
 ### SEC-2. Scheduling-scope enforcement (prompt injection defense)
 The parser calls Claude with user-controlled email text as input. A malicious
@@ -1225,6 +1295,51 @@ mishandled or a prompt injection attempt occurred:
   of the Pass 1 dispatch block.
 - Tests: a `test_security.py` covering both layers — injected parser output
   with bad intents, malformed attendees, oversized topics, out-of-range dates.
+
+### SEC-3. Authenticated-received-chain (ARC) / SPF+DKIM verification
+SEC-1 confirms the From address string matches the owner's email, but a
+determined attacker who can forge or replay email headers could still craft a
+message with a matching From address. Gmail's API exposes `Authentication-Results`
+headers that record whether the sending domain's SPF and DKIM checks passed —
+parsing these before acting on an `EA:` command provides a cryptographic
+guarantee that the message genuinely originated from the claimed sender.
+
+**How it works:**
+Gmail stamps every message with an `Authentication-Results` header similar to:
+```
+Authentication-Results: mx.google.com;
+   dkim=pass header.i=@example.com header.s=google header.b=abc123;
+   spf=pass (google.com: domain of me@example.com designates ...) smtp.mailfrom=me@example.com;
+   dmarc=pass (p=NONE sp=QUARANTINE dis=NONE) header.from=example.com
+```
+A `pass` result for DKIM or SPF (and ideally DMARC) means the message
+cryptographically verified as originating from `example.com`.
+
+**Implementation sketch:**
+- `ea/poll.py` — after `parseaddr` confirms the From address, also inspect
+  `msg.extra_headers` (the `X-EA-*` dict) or a new `auth_results` field on
+  `GmailMessage` populated from the `Authentication-Results` header.
+- `ea/gmail.py` — `_parse_message` already collects `X-EA-*` extra headers;
+  extend to also capture `Authentication-Results` (or parse it inline).
+- A simple regex on the header value looking for `dkim=pass` and/or
+  `spf=pass` is sufficient; no external library needed.
+- Make the check opt-in via config:
+  ```toml
+  [security]
+  require_dkim_pass = false   # set true to reject commands without DKIM=pass
+  ```
+  Default off — personal Gmail accounts sending to themselves always pass DKIM,
+  but the configuration could vary in shared or forwarding setups.
+
+**Caveats:**
+- Email forwarding strips or invalidates DKIM signatures. If the owner uses
+  forwarding rules (e.g. from a work address to Gmail), enabling this check
+  would block legitimate commands.
+- SPF alone is weak (it checks the envelope sender, not the From header). DKIM
+  is the more meaningful signal; DMARC combines both.
+- For a personal, non-forwarded Gmail inbox, SEC-1 (exact address match) is
+  already very strong. This item is only worth implementing if the threat model
+  includes a sophisticated attacker with header-forging capability.
 
 ---
 

@@ -59,6 +59,42 @@ def thread_to_text(thread: GmailThread) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Footer wrapper
+# ---------------------------------------------------------------------------
+
+class FooterGmailClient:
+    """
+    Wraps any gmail client (live or fake) and appends a footer to every
+    outgoing email body.  All other methods delegate transparently to the
+    inner client via __getattr__, so the wrapper is a drop-in replacement
+    for any duck-typed gmail interface.
+
+    Instantiated in runner.py when config["user"]["email_footer"] is set.
+    """
+
+    def __init__(self, inner, footer: str):
+        self._inner = inner
+        self._footer = footer
+
+    def send_email(
+        self,
+        to: str,
+        subject: str,
+        body: str,
+        thread_id: str = None,
+        extra_headers: dict = None,
+    ) -> "GmailMessage":
+        if self._footer:
+            body = f"{body}\n\n---\n{self._footer}"
+        return self._inner.send_email(
+            to, subject, body, thread_id=thread_id, extra_headers=extra_headers
+        )
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+
+# ---------------------------------------------------------------------------
 # Live Gmail client
 # ---------------------------------------------------------------------------
 
