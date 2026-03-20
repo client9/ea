@@ -624,7 +624,51 @@ Required:
   run `python ea.py auth` to re-authenticate."
 - Exit cleanly rather than retrying (retrying won't help).
 
-### OP-7. Config validation at startup
+### OP-7. Auto-detect timezone
+`schedule.timezone` is currently a required manual entry in `config.toml`. Two
+automatic sources are available and either is more reliable than the user
+remembering to update it after travel or a DST change.
+
+**Source 1 — OS timezone (macOS/Linux):**
+`/etc/localtime` is a symlink to a zoneinfo file whose path encodes the IANA
+name (e.g. `…/zoneinfo/America/Los_Angeles`). The stdlib `datetime.timezone`
+doesn't expose this, but `zoneinfo.ZoneInfo` paired with reading the symlink
+target (or using the `tzlocal` package) gives the IANA name in one call.
+No API credentials needed; works offline.
+
+**Source 2 — Google Calendar settings:**
+The Calendar API's `calendarList.get(calendarId='primary')` response includes a
+`timeZone` field set to the IANA name the user has configured in Google Calendar.
+This is already an authenticated call (creds are always available after `auth`),
+and it reflects the user's explicit preference rather than the OS clock.
+
+**Proposed behavior:**
+Make `schedule.timezone` optional. Resolution order at startup:
+
+1. `config.toml` value — explicit override always wins.
+2. Google Calendar primary calendar `timeZone` — preferred auto-source (already
+   authenticated; reflects user intent rather than machine config).
+3. OS local timezone via symlink resolution or `tzlocal` — fallback when
+   Calendar API is unavailable (e.g., during `parse` or `testdata` commands
+   that don't require creds).
+4. Error: "Cannot determine timezone — set `schedule.timezone` in config.toml."
+
+**Implementation:**
+- `ea/config.py` — new `resolve_timezone(config, creds=None) -> str` function.
+  Checks the config key first, then tries the Calendar API if `creds` is
+  provided, then falls back to OS detection. Raises `SystemExit` with a clear
+  message if all sources fail.
+- `ea/runner.py` — call `resolve_timezone(config, creds)` after loading creds,
+  inject the result into the config dict before passing to poll.
+- `ea/auth.py` — `check_auth()` can print the detected timezone for visibility.
+- No changes to the parser, scheduler, or responder — they all receive `tz_name`
+  as a plain string already.
+
+**Dependency:** `tzlocal` (pure Python, no C extension) covers the OS fallback
+on macOS, Linux, and Windows. Add to `pyproject.toml` optional deps or core
+deps depending on appetite.
+
+### OP-8. Config validation at startup
 Currently a missing or malformed `config.toml` causes confusing crashes mid-poll
 (e.g., `KeyError: 'email'`). Validate the config once at startup before any API
 calls are made.
@@ -637,7 +681,7 @@ Required checks:
 
 Fail fast with a clear message: `"Config error: user.email is required in config.toml"`
 
-### OP-8. Health monitoring / dead-man's switch
+### OP-9. Health monitoring / dead-man's switch
 No current way to know if the process died silently. Options (pick one):
 
 - **Healthchecks.io ping** (free tier): send a GET request to a unique URL at the
@@ -647,7 +691,7 @@ No current way to know if the process died silently. Options (pick one):
 - **Heartbeat email**: once per day, send a self-email "EA: alive — N threads
   processed today." Visible in Gmail without any external service.
 
-### OP-9. Configurable LLM model and provider abstraction
+### OP-10. Configurable LLM model and provider abstraction
 Currently the Anthropic model name (`claude-sonnet-4-20250514`) is hard-coded in
 three places: `meeting_parser.py`, `classifier.py` (twice). Two levels of change:
 
@@ -679,7 +723,7 @@ of the codebase has no hard dependency on it.
 Suggested order: do Level 1 first (one-line change per call site + config key),
 then Level 2 only if a second provider is actually needed.
 
-### OP-10. Pluggable state and lock backends
+### OP-11. Pluggable state and lock backends
 Currently `state.json` and `.state.lock` are always local files, which breaks
 Cloud Run / Cloud Functions deployments where the filesystem is ephemeral and
 multiple instances could run concurrently.
@@ -730,7 +774,7 @@ any additional infrastructure.
 4. No changes to `poll.py`, `responder.py`, or tests (they inject `StateStore`
    directly and don't touch the backend).
 
-### OP-11. Configurable command sentinel
+### OP-12. Configurable command sentinel
 The string `EA:` is hardcoded in three distinct roles and would need to change
 if the user wants a different trigger word (e.g. their own name `"Nick:"`,
 `"JARVIS:"`, or just `"sched:"`).
@@ -775,7 +819,7 @@ Default to `"EA"` so existing setups require no change.
   parse time (turn the module-level constant into a function that accepts the
   sentinel, or use `.format(sentinel=sentinel)` with a placeholder).
 
-### OP-12. Gmail push notifications (replace polling)
+### OP-13. Gmail push notifications (replace polling)
 Currently EA polls Gmail on a fixed interval. Gmail's Watch API can push a
 notification the moment a new message arrives, eliminating polling latency
 entirely and reducing unnecessary API calls.
