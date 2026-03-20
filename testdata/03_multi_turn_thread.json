@@ -1,0 +1,26 @@
+{
+  "_comment": "Fri Mar 20: Lisa's team wants 10am PST (18:00 UTC) for 90 min. All attendees free at 18:00. → schedule",
+  "timeMin": "2026-03-20T00:00:00Z",
+  "timeMax": "2026-03-20T23:59:59Z",
+  "calendars": {
+    "me@example.com": {
+      "busy": [
+        { "start": "2026-03-20T14:00:00Z", "end": "2026-03-20T15:00:00Z" },
+        { "start": "2026-03-20T16:00:00Z", "end": "2026-03-20T17:00:00Z" }
+      ]
+    },
+    "lisa@acmecorp.com": {
+      "busy": [
+        { "start": "2026-03-20T16:00:00Z", "end": "2026-03-20T17:00:00Z" }
+      ]
+    },
+    "david.chun@acmecorp.com": {
+      "busy": []
+    },
+    "rachel.wong@acmecorp.com": {
+      "busy": [
+        { "start": "2026-03-20T15:00:00Z", "end": "2026-03-20T16:00:00Z" }
+      ]
+    }
+  }
+}

@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  EA poll agent — runs one poll cycle every 5 minutes.
+
+  SETUP (one time):
+    1. Copy or symlink this file to ~/Library/LaunchAgents/
+         cp docs/launchd/com.ea.poll.plist ~/Library/LaunchAgents/
+
+    2. Edit the four CHANGEME values below:
+         PROJECT_DIR  — absolute path to this repo, e.g. /Users/you/projects/ea
+         VENV_PYTHON  — absolute path to .venv/bin/python inside the repo
+         ANTHROPIC_API_KEY — your key (or use a .env loader; see note below)
+
+    3. Load and start:
+         launchctl load ~/Library/LaunchAgents/com.ea.poll.plist
+         launchctl start com.ea.poll
+
+  USEFUL COMMANDS:
+    launchctl list com.ea.poll          # check status / last exit code
+    launchctl stop com.ea.poll          # stop immediately
+    launchctl unload ~/Library/LaunchAgents/com.ea.poll.plist   # remove
+
+  LOGS:
+    Structured JSON lines → PROJECT_DIR/ea.log
+    launchd stderr (startup errors) → PROJECT_DIR/ea-launchd.err
+
+  NOTE ON API KEY:
+    Embedding the key in the plist stores it in plain text.  A safer option
+    is to keep the key in ~/.ea-env and load it via a wrapper script:
+
+      #!/bin/bash
+      source ~/.ea-env          # exports ANTHROPIC_API_KEY
+      exec /path/to/.venv/bin/python /path/to/ea.py poll --quiet
+
+    Then set ProgramArguments to just ["/path/to/wrapper.sh"].
+-->
+<plist version="1.0">
+<dict>
+
+  <key>Label</key>
+  <string>com.ea.poll</string>
+
+  <!-- Run poll --quiet every 300 seconds (5 minutes).
+       Adjust StartInterval to match poll_interval_seconds in config.toml. -->
+  <key>StartInterval</key>
+  <integer>300</integer>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>CHANGEME_VENV_PYTHON</string>  <!-- e.g. /Users/you/projects/ea/.venv/bin/python -->
+    <string>CHANGEME_PROJECT_DIR/ea.py</string>  <!-- e.g. /Users/you/projects/ea/ea.py -->
+    <string>poll</string>
+    <string>--quiet</string>
+  </array>
+
+  <!-- Must match the project root so config.toml / state.json / token.json are found. -->
+  <key>WorkingDirectory</key>
+  <string>CHANGEME_PROJECT_DIR</string>  <!-- e.g. /Users/you/projects/ea -->
+
+  <!-- All structured logging goes to ea.log in the project directory.
+       stdout is suppressed by --quiet.  stderr here catches Python startup
+       errors before logging is configured (e.g. missing venv, import errors). -->
+  <key>StandardOutPath</key>
+  <string>/dev/null</string>
+  <key>StandardErrorPath</key>
+  <string>CHANGEME_PROJECT_DIR/ea-launchd.err</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>ANTHROPIC_API_KEY</key>
+    <string>CHANGEME_ANTHROPIC_API_KEY</string>
+  </dict>
+
+  <!-- Start on login and after every reboot. -->
+  <key>RunAtLoad</key>
+  <true/>
+
+</dict>
+</plist>

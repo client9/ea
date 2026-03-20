@@ -1,0 +1,18 @@
+{
+  "_comment": "Thu Mar 19: Sarah wants 2pm EST (19:00 UTC) for 30 min. Both free at 2pm. → schedule",
+  "timeMin": "2026-03-19T00:00:00Z",
+  "timeMax": "2026-03-19T23:59:59Z",
+  "calendars": {
+    "me@example.com": {
+      "busy": [
+        { "start": "2026-03-19T14:00:00Z", "end": "2026-03-19T15:00:00Z" },
+        { "start": "2026-03-19T16:00:00Z", "end": "2026-03-19T17:00:00Z" }
+      ]
+    },
+    "sarah@example.com": {
+      "busy": [
+        { "start": "2026-03-19T17:00:00Z", "end": "2026-03-19T18:00:00Z" }
+      ]
+    }
+  }
+}

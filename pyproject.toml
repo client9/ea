@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ea"
+version = "0.1.0"
+requires-python = ">=3.9"
+dependencies = [
+    "anthropic>=0.25.0",
+    "parsedatetime>=2.6",
+]
+
+[tool.setuptools.packages.find]
+include = ["ea*"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+google = [
+    "google-auth>=2.0",
+    "google-auth-oauthlib>=1.2",
+    "google-auth-httplib2>=0.2",
+    "google-api-python-client>=2.0",
+]

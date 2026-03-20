@@ -1,0 +1,35 @@
+From: Lisa Park <lisa@acmecorp.com>
+To: me@example.com
+Date: Mon, 16 Mar 2026 08:47:00 -0800
+
+Hi,
+
+Following up on our conversation from last week about the partnership proposal. Would love to get the key stakeholders together to align before we go to contract. Does your team have bandwidth this week?
+
+Lisa
+
+---
+
+From: me@example.com
+To: Lisa Park <lisa@acmecorp.com>
+Date: Mon, 16 Mar 2026 11:30:00 -0500
+
+Hi Lisa,
+
+Yes absolutely, we're keen to move this forward. Wednesday or Friday would work on our end. Who would be joining from your side?
+
+---
+
+From: Lisa Park <lisa@acmecorp.com>
+To: me@example.com
+Date: Tue, 17 Mar 2026 09:15:00 -0800
+
+Great! It would be myself, our Head of Legal (David Chun), and our CTO Rachel Wong. We're thinking a 90-minute working session. Friday at 10am PST works perfectly for us — does that suit?
+
+---
+
+From: me@example.com
+To: Lisa Park <lisa@acmecorp.com>
+Date: Tue, 17 Mar 2026 12:44:00 -0500
+
+EA: please schedule

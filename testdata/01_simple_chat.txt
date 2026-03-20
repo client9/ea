@@ -1,0 +1,19 @@
+From: Sarah Johnson <sarah@example.com>
+To: me@example.com
+Date: Mon, 16 Mar 2026 10:22:00 -0500
+
+Hi,
+
+Could we schedule a 30-minute call this Thursday at 2pm EST to go over the Q2 budget proposal?
+
+Let me know if that works!
+
+Sarah
+
+---
+
+From: me@example.com
+To: Sarah Johnson <sarah@example.com>
+Date: Mon, 16 Mar 2026 11:47:00 -0500
+
+EA: please schedule

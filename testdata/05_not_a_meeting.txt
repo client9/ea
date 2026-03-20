@@ -1,0 +1,8 @@
+From: noreply@newsletter.com
+To: me@example.com
+Date: Sun, 15 Mar 2026 06:00:00 +0000
+
+Your monthly invoice for $49.99 is ready. Please log in to your account to view and download your invoice. Payment will be automatically charged to your card on file on March 20th.
+ 
+Thank you for your business.
+

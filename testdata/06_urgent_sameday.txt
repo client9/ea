@@ -1,0 +1,13 @@
+From: CEO <ceo@company.com>
+To: me@example.com
+Date: Tue, 17 Mar 2026 13:41:00 -0500
+
+Need to speak with you ASAP — can you find 20 minutes today? The board is asking questions about the acquisition and I need to get aligned before my 4pm call. Anytime before 3:30pm works.
+
+---
+
+From: me@example.com
+To: CEO <ceo@company.com>
+Date: Tue, 17 Mar 2026 13:43:00 -0500
+
+EA: please schedule ASAP

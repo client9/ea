@@ -1,0 +1,19 @@
+{
+  "_comment": "Week of Mar 16-20: Mike wants 'next week sometime' — no specific time. Parser will flag needs_info; calendar is provided but scheduler won't get this far.",
+  "timeMin": "2026-03-16T00:00:00Z",
+  "timeMax": "2026-03-20T23:59:59Z",
+  "calendars": {
+    "me@example.com": {
+      "busy": [
+        { "start": "2026-03-16T15:00:00Z", "end": "2026-03-16T16:00:00Z" },
+        { "start": "2026-03-17T14:00:00Z", "end": "2026-03-17T15:30:00Z" },
+        { "start": "2026-03-18T16:00:00Z", "end": "2026-03-18T17:00:00Z" },
+        { "start": "2026-03-19T14:00:00Z", "end": "2026-03-19T15:00:00Z" },
+        { "start": "2026-03-20T14:00:00Z", "end": "2026-03-20T15:00:00Z" }
+      ]
+    },
+    "mike@example.com": {
+      "busy": []
+    }
+  }
+}

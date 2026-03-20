@@ -1,0 +1,17 @@
+{
+  "_comment": "Mar 24-26: Tue 11am busy for me, Thu 9am busy for Derek, Thu 2pm free for both. User prefers Thursday. → schedule Thu Mar 26 2pm EST",
+  "timeMin": "2026-03-24T00:00:00Z",
+  "timeMax": "2026-03-26T23:59:59Z",
+  "calendars": {
+    "me@example.com": {
+      "busy": [
+        { "start": "2026-03-24T16:00:00Z", "end": "2026-03-24T17:00:00Z" }
+      ]
+    },
+    "derek@example.com": {
+      "busy": [
+        { "start": "2026-03-26T14:00:00Z", "end": "2026-03-26T15:00:00Z" }
+      ]
+    }
+  }
+}

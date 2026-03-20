@@ -1,0 +1,23 @@
+From: Derek Hsu <derek@example.com>
+To: me@example.com
+Date: Tue, 17 Mar 2026 09:08:00 -0700
+
+Hi,
+
+I'd like to set up a 1-hour product review with you and the design team. A few options that could work on my end:
+
+- Tuesday March 24th at 11am
+- Wednesday March 25th at 3pm
+- Thursday March 26th at 9am or 2pm
+
+Let me know which works best. We'll do it on Google Meet.
+
+Derek
+
+---
+
+From: me@example.com
+To: Derek Hsu <derek@example.com>
+Date: Tue, 17 Mar 2026 13:15:00 -0500
+
+EA: please schedule, prefer Thursday if available

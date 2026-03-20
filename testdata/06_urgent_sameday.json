@@ -1,0 +1,15 @@
+{
+  "_comment": "Tue Mar 17: CEO needs 20 min before 3:30pm EST (20:30 UTC). My calendar is packed 2pm-4pm EST (19:00-21:00 UTC) with no gap. → no_availability",
+  "timeMin": "2026-03-17T18:43:00Z",
+  "timeMax": "2026-03-17T20:30:00Z",
+  "calendars": {
+    "me@example.com": {
+      "busy": [
+        { "start": "2026-03-17T19:00:00Z", "end": "2026-03-17T21:00:00Z" }
+      ]
+    },
+    "ceo@company.com": {
+      "busy": []
+    }
+  }
+}
