@@ -19,7 +19,7 @@ class Message:
 
 def parse_thread(thread_text: str) -> list[Message]:
     """Split a raw email thread into individual Message objects."""
-    raw_messages = re.split(r'\n-{3,}\n', thread_text)
+    raw_messages = re.split(r"\n-{3,}\n", thread_text)
     messages = []
     for raw in raw_messages:
         raw = raw.strip()
@@ -34,17 +34,19 @@ def parse_thread(thread_text: str) -> list[Message]:
             if line.strip() == "":
                 body_start = i + 1
                 break
-            match = re.match(r'^([\w-]+):\s*(.+)$', line)
+            match = re.match(r"^([\w-]+):\s*(.+)$", line)
             if match:
                 headers[match.group(1).lower()] = match.group(2).strip()
 
         body = "\n".join(lines[body_start:]).strip()
-        messages.append(Message(
-            from_addr=headers.get("from", ""),
-            to_addr=headers.get("to", ""),
-            date=headers.get("date", ""),
-            body=body,
-        ))
+        messages.append(
+            Message(
+                from_addr=headers.get("from", ""),
+                to_addr=headers.get("to", ""),
+                date=headers.get("date", ""),
+                body=body,
+            )
+        )
 
     return messages
 
@@ -62,7 +64,7 @@ def find_ea_trigger(thread_text: str, my_email: str) -> str | None:
     for message in messages:
         if my_email.lower() not in message.from_addr.lower():
             continue
-        match = re.search(r'EA:\s*(.+)', message.body, re.IGNORECASE)
+        match = re.search(r"EA:\s*(.+)", message.body, re.IGNORECASE)
         if match:
             return match.group(1).strip()
     return None

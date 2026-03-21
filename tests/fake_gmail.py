@@ -43,7 +43,7 @@ class FakeGmailClient:
     def seed_thread(
         self,
         thread_id: str,
-        messages: list,           # list of GmailMessage or FakeMsg helper
+        messages: list,  # list of GmailMessage or FakeMsg helper
         label_ids: list[str] = None,
     ) -> GmailThread:
         """Seed an existing thread (e.g. inbound email from someone else)."""
@@ -53,15 +53,17 @@ class FakeGmailClient:
                 msgs.append(m)
             else:
                 # FakeMsg namedtuple or similar
-                msgs.append(GmailMessage(
-                    id=f"{thread_id}-msg-{i}",
-                    thread_id=thread_id,
-                    from_addr=m.from_addr,
-                    to_addr=m.to_addr,
-                    subject=m.subject,
-                    date=m.date,
-                    body=m.body,
-                ))
+                msgs.append(
+                    GmailMessage(
+                        id=f"{thread_id}-msg-{i}",
+                        thread_id=thread_id,
+                        from_addr=m.from_addr,
+                        to_addr=m.to_addr,
+                        subject=m.subject,
+                        date=m.date,
+                        body=m.body,
+                    )
+                )
         thread = GmailThread(
             id=thread_id,
             messages=msgs,
@@ -102,8 +104,7 @@ class FakeGmailClient:
         """Return threads that do not carry any of the excluded labels."""
         excluded = set(exclude_label_ids or [])
         return [
-            t for t in self._threads.values()
-            if not excluded.intersection(t.label_ids)
+            t for t in self._threads.values() if not excluded.intersection(t.label_ids)
         ]
 
     def get_thread(self, thread_id: str) -> GmailThread | None:
@@ -195,7 +196,7 @@ class NewThreadFakeGmailClient(FakeGmailClient):
             to=to,
             subject=subject,
             body=body,
-            thread_id=None,          # force new thread regardless of caller's intent
+            thread_id=None,  # force new thread regardless of caller's intent
             extra_headers=extra_headers,
         )
 
@@ -203,6 +204,7 @@ class NewThreadFakeGmailClient(FakeGmailClient):
 @dataclass
 class FakeMsg:
     """Convenience builder for seeding messages in FakeGmailClient.seed_thread()."""
+
     from_addr: str
     to_addr: str
     subject: str

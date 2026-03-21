@@ -130,6 +130,7 @@ def parse_meeting_request(text: str, tz_name: str = "UTC") -> dict:
     day_of_week = now_local.strftime("%A")
 
     from ea.network import get_api_timeout
+
     client = anthropic.Anthropic(
         api_key=os.environ.get("ANTHROPIC_API_KEY"),
         timeout=get_api_timeout(),
@@ -159,7 +160,7 @@ def parse_meeting_request(text: str, tz_name: str = "UTC") -> dict:
     except json.JSONDecodeError as e:
         return {
             "error": f"Failed to parse Claude response as JSON: {e}",
-            "raw_response": raw
+            "raw_response": raw,
         }
 
     # Convert normalized phrases → datetimes (UTC for timed events, local dates for all-day).

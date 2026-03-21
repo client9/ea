@@ -65,23 +65,27 @@ def run_once(
     log = get_logger("ea.runner")
 
     from ea import network
+
     timeout_sec = config.get("schedule", {}).get("timeout_seconds", 30)
     network.configure(attempts=1, api_timeout=float(timeout_sec))
 
     lock_f = _acquire_lock(LOCK_FILE)
     if lock_f is None:
-        log.warning(f"Poll skipped — another poll cycle is already running ({LOCK_FILE} held)")
+        log.warning(
+            f"Poll skipped — another poll cycle is already running ({LOCK_FILE} held)"
+        )
         return {"pass1": [], "pass2": [], "pass3": [], "expired": []}
 
     try:
-        creds    = load_creds(credentials_file=credentials_file, token_file=token_file)
-        gmail    = LiveGmailClient(creds)
-        footer   = config.get("user", {}).get("email_footer", "")
+        creds = load_creds(credentials_file=credentials_file, token_file=token_file)
+        gmail = LiveGmailClient(creds)
+        footer = config.get("user", {}).get("email_footer", "")
         if footer:
             from ea.gmail import FooterGmailClient
+
             gmail = FooterGmailClient(gmail, footer)
         calendar = CalendarClient(creds=creds)
-        state    = StateStore()
+        state = StateStore()
 
         log.info("Poll cycle started")
         summary = run_poll(
@@ -89,8 +93,12 @@ def run_once(
             calendar,
             state,
             config,
-            confirm_eval_fn=lambda text, entry: classify_confirmation_reply(text, entry, config, calendar),
-            external_reply_fn=lambda text, entry: classify_external_reply(text, entry, config),
+            confirm_eval_fn=lambda text, entry: classify_confirmation_reply(
+                text, entry, config, calendar
+            ),
+            external_reply_fn=lambda text, entry: classify_external_reply(
+                text, entry, config
+            ),
             dry_run=dry_run,
         )
         total = sum(len(v) for v in summary.values())
@@ -106,6 +114,7 @@ def run_once(
         return summary
     except Exception as exc:
         from ea.network import is_transient_error
+
         if is_transient_error(exc):
             log.error("Poll skipped — network unavailable: %s", exc)
         else:
@@ -136,8 +145,14 @@ def run_loop(
     log.info(f"Starting poll loop (every {interval_sec}s). Press Ctrl+C to stop.")
 
     from ea import network
+
     timeout_sec = config.get("schedule", {}).get("timeout_seconds", 30)
-    network.configure(attempts=3, base_delay=1.0, cap=float(interval_sec), api_timeout=float(timeout_sec))
+    network.configure(
+        attempts=3,
+        base_delay=1.0,
+        cap=float(interval_sec),
+        api_timeout=float(timeout_sec),
+    )
 
     while True:
         try:
@@ -164,12 +179,12 @@ def _log_summary(summary: dict) -> None:
 
 
 def _format_item(pass_name: str, item: dict) -> str:
-    ts      = item.get("timestamp", "??:??:??")
-    tid     = item["thread_id"][:12]
-    action  = item["action"]
-    topic   = item.get("topic") or ""
-    intent  = item.get("intent") or item.get("state_type") or ""
+    ts = item.get("timestamp", "??:??:??")
+    tid = item["thread_id"][:12]
+    action = item["action"]
+    topic = item.get("topic") or ""
+    intent = item.get("intent") or item.get("state_type") or ""
 
     context = f"  {intent}" if intent else ""
-    label   = f"  \"{topic}\"" if topic else ""
+    label = f'  "{topic}"' if topic else ""
     return f"{ts}  [{pass_name}]{context}{label}  →  {action}  ({tid})"

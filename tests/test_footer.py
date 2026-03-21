@@ -21,8 +21,8 @@ def _make_wrapped(footer=FOOTER):
 # Footer appended to outgoing body
 # ---------------------------------------------------------------------------
 
-class TestFooterAppended:
 
+class TestFooterAppended:
     def test_footer_appended_to_plain_body(self):
         wrapped, inner = _make_wrapped()
         wrapped.send_email(to=MY_EMAIL, subject="EA: booked", body="Booked.")
@@ -48,8 +48,9 @@ class TestFooterAppended:
         wrapped.send_email(to="other@example.com", subject="s", body="b")
         # FakeGmailClient records all sent messages; retrieve via thread
         all_threads = inner.list_threads()
-        sent_bodies = [m.body for t in all_threads for m in t.messages
-                       if m.from_addr == MY_EMAIL]
+        sent_bodies = [
+            m.body for t in all_threads for m in t.messages if m.from_addr == MY_EMAIL
+        ]
         assert any(FOOTER in b for b in sent_bodies)
 
     def test_thread_id_forwarded(self):
@@ -57,13 +58,20 @@ class TestFooterAppended:
         inner = FakeGmailClient(my_email=MY_EMAIL)
         # Seed an existing thread
         from ea.gmail import GmailMessage
+
         inner.seed_thread(
             thread_id="t1",
-            messages=[GmailMessage(
-                id="m1", thread_id="t1",
-                from_addr="bob@example.com", to_addr=MY_EMAIL,
-                subject="Hi", date="2026-03-20", body="Can we meet?",
-            )],
+            messages=[
+                GmailMessage(
+                    id="m1",
+                    thread_id="t1",
+                    from_addr="bob@example.com",
+                    to_addr=MY_EMAIL,
+                    subject="Hi",
+                    date="2026-03-20",
+                    body="Can we meet?",
+                )
+            ],
         )
         wrapped = FooterGmailClient(inner, FOOTER)
         msg = wrapped.send_email(
@@ -77,7 +85,9 @@ class TestFooterAppended:
     def test_extra_headers_forwarded(self):
         wrapped, inner = _make_wrapped()
         msg = wrapped.send_email(
-            to=MY_EMAIL, subject="s", body="b",
+            to=MY_EMAIL,
+            subject="s",
+            body="b",
             extra_headers={"X-EA-Original-Thread": "t99"},
         )
         assert msg.extra_headers.get("X-EA-Original-Thread") == "t99"
@@ -87,8 +97,8 @@ class TestFooterAppended:
 # No footer when footer is empty / absent
 # ---------------------------------------------------------------------------
 
-class TestNoFooter:
 
+class TestNoFooter:
     def test_empty_string_no_footer(self):
         wrapped, inner = _make_wrapped(footer="")
         wrapped.send_email(to=MY_EMAIL, subject="s", body="Original body.")
@@ -109,15 +119,24 @@ class TestNoFooter:
 # Delegation — non-send_email methods pass through to inner client
 # ---------------------------------------------------------------------------
 
-class TestDelegation:
 
+class TestDelegation:
     def test_list_threads_delegates(self):
         inner = FakeGmailClient(my_email=MY_EMAIL)
-        inner.seed_thread("t1", messages=[GmailMessage(
-            id="m1", thread_id="t1",
-            from_addr="bob@example.com", to_addr=MY_EMAIL,
-            subject="Hi", date="2026-03-20", body="Hello",
-        )])
+        inner.seed_thread(
+            "t1",
+            messages=[
+                GmailMessage(
+                    id="m1",
+                    thread_id="t1",
+                    from_addr="bob@example.com",
+                    to_addr=MY_EMAIL,
+                    subject="Hi",
+                    date="2026-03-20",
+                    body="Hello",
+                )
+            ],
+        )
         wrapped = FooterGmailClient(inner, FOOTER)
         threads = wrapped.list_threads()
         assert len(threads) == 1
@@ -125,11 +144,20 @@ class TestDelegation:
 
     def test_get_thread_delegates(self):
         inner = FakeGmailClient(my_email=MY_EMAIL)
-        inner.seed_thread("t1", messages=[GmailMessage(
-            id="m1", thread_id="t1",
-            from_addr="bob@example.com", to_addr=MY_EMAIL,
-            subject="Hi", date="2026-03-20", body="Hello",
-        )])
+        inner.seed_thread(
+            "t1",
+            messages=[
+                GmailMessage(
+                    id="m1",
+                    thread_id="t1",
+                    from_addr="bob@example.com",
+                    to_addr=MY_EMAIL,
+                    subject="Hi",
+                    date="2026-03-20",
+                    body="Hello",
+                )
+            ],
+        )
         wrapped = FooterGmailClient(inner, FOOTER)
         thread = wrapped.get_thread("t1")
         assert thread is not None
@@ -137,11 +165,20 @@ class TestDelegation:
 
     def test_apply_label_delegates(self):
         inner = FakeGmailClient(my_email=MY_EMAIL)
-        inner.seed_thread("t1", messages=[GmailMessage(
-            id="m1", thread_id="t1",
-            from_addr="bob@example.com", to_addr=MY_EMAIL,
-            subject="Hi", date="2026-03-20", body="Hello",
-        )])
+        inner.seed_thread(
+            "t1",
+            messages=[
+                GmailMessage(
+                    id="m1",
+                    thread_id="t1",
+                    from_addr="bob@example.com",
+                    to_addr=MY_EMAIL,
+                    subject="Hi",
+                    date="2026-03-20",
+                    body="Hello",
+                )
+            ],
+        )
         wrapped = FooterGmailClient(inner, FOOTER)
         wrapped.apply_label("t1", "ea-scheduled")
         assert inner.has_label("t1", "ea-scheduled")

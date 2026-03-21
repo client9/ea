@@ -28,7 +28,7 @@ class GmailMessage:
     from_addr: str
     to_addr: str
     subject: str
-    date: str                    # RFC 2822 or ISO 8601
+    date: str  # RFC 2822 or ISO 8601
     body: str
     label_ids: list[str] = field(default_factory=list)
     extra_headers: dict[str, str] = field(default_factory=dict)
@@ -48,12 +48,14 @@ def thread_to_text(thread: GmailThread) -> str:
     """
     parts = []
     for msg in thread.messages:
-        header_block = "\n".join([
-            f"From: {msg.from_addr}",
-            f"To: {msg.to_addr}",
-            f"Date: {msg.date}",
-            f"Subject: {msg.subject}",
-        ])
+        header_block = "\n".join(
+            [
+                f"From: {msg.from_addr}",
+                f"To: {msg.to_addr}",
+                f"Date: {msg.date}",
+                f"Subject: {msg.subject}",
+            ]
+        )
         parts.append(header_block + "\n\n" + msg.body)
     return "\n\n---\n\n".join(parts)
 
@@ -61,6 +63,7 @@ def thread_to_text(thread: GmailThread) -> str:
 # ---------------------------------------------------------------------------
 # Footer wrapper
 # ---------------------------------------------------------------------------
+
 
 class FooterGmailClient:
     """
@@ -98,6 +101,7 @@ class FooterGmailClient:
 # Live Gmail client
 # ---------------------------------------------------------------------------
 
+
 class LiveGmailClient:
     """
     Gmail API client.  Implements the same duck-type interface as
@@ -109,9 +113,10 @@ class LiveGmailClient:
 
     def __init__(self, creds):
         from googleapiclient.discovery import build
+
         service = build("gmail", "v1", credentials=creds)
         self._users = service.users()
-        self._label_id_cache: dict[str, str] = {}   # label name → Gmail label ID
+        self._label_id_cache: dict[str, str] = {}  # label name → Gmail label ID
 
     # ------------------------------------------------------------------
     # Interface
@@ -132,9 +137,11 @@ class LiveGmailClient:
         page_token = None
         while True:
             resp = call_with_retry(
-                lambda pt=page_token: self._users.threads().list(
-                    userId="me", q=query, pageToken=pt
-                ).execute()
+                lambda pt=page_token: (
+                    self._users.threads()
+                    .list(userId="me", q=query, pageToken=pt)
+                    .execute()
+                )
             )
             for item in resp.get("threads", []):
                 thread = self.get_thread(item["id"])
@@ -149,19 +156,20 @@ class LiveGmailClient:
         """Fetch a single thread with all messages fully decoded."""
         try:
             data = call_with_retry(
-                lambda: self._users.threads().get(
-                    userId="me", id=thread_id, format="full"
-                ).execute()
+                lambda: (
+                    self._users.threads()
+                    .get(userId="me", id=thread_id, format="full")
+                    .execute()
+                )
             )
         except Exception:
             return None
 
-        messages = [
-            self._parse_message(m)
-            for m in data.get("messages", [])
-        ]
+        messages = [self._parse_message(m) for m in data.get("messages", [])]
         # Collect label IDs from the most recent message
-        last_labels = data["messages"][-1].get("labelIds", []) if data.get("messages") else []
+        last_labels = (
+            data["messages"][-1].get("labelIds", []) if data.get("messages") else []
+        )
         return GmailThread(id=thread_id, messages=messages, label_ids=last_labels)
 
     def send_email(
@@ -177,7 +185,10 @@ class LiveGmailClient:
         on that thread.  Returns the sent message as a GmailMessage.
         """
         _log.debug(
-            "send_email to=%r subject=%r thread_id=%r", to, subject, thread_id,
+            "send_email to=%r subject=%r thread_id=%r",
+            to,
+            subject,
+            thread_id,
             extra={"to": to, "thread_id": thread_id},
         )
         mime = MIMEText(body)
@@ -198,9 +209,11 @@ class LiveGmailClient:
         )
         # Fetch the full message so we can return a GmailMessage
         full = call_with_retry(
-            lambda: self._users.messages().get(
-                userId="me", id=result["id"], format="full"
-            ).execute()
+            lambda: (
+                self._users.messages()
+                .get(userId="me", id=result["id"], format="full")
+                .execute()
+            )
         )
         return self._parse_message(full)
 
@@ -208,18 +221,24 @@ class LiveGmailClient:
         """Create the label if it doesn't exist, then apply it to every message in the thread."""
         label_id = self._get_or_create_label(label)
         thread = call_with_retry(
-            lambda: self._users.threads().get(
-                userId="me", id=thread_id, format="minimal"
-            ).execute()
+            lambda: (
+                self._users.threads()
+                .get(userId="me", id=thread_id, format="minimal")
+                .execute()
+            )
         )
         for msg in thread.get("messages", []):
             msg_id = msg["id"]
             call_with_retry(
-                lambda mid=msg_id: self._users.messages().modify(
-                    userId="me",
-                    id=mid,
-                    body={"addLabelIds": [label_id]},
-                ).execute()
+                lambda mid=msg_id: (
+                    self._users.messages()
+                    .modify(
+                        userId="me",
+                        id=mid,
+                        body={"addLabelIds": [label_id]},
+                    )
+                    .execute()
+                )
             )
 
     # ------------------------------------------------------------------
@@ -240,14 +259,18 @@ class LiveGmailClient:
 
         # Label doesn't exist — create it
         new_label = call_with_retry(
-            lambda: self._users.labels().create(
-                userId="me",
-                body={
-                    "name": name,
-                    "labelListVisibility": "labelShow",
-                    "messageListVisibility": "show",
-                },
-            ).execute()
+            lambda: (
+                self._users.labels()
+                .create(
+                    userId="me",
+                    body={
+                        "name": name,
+                        "labelListVisibility": "labelShow",
+                        "messageListVisibility": "show",
+                    },
+                )
+                .execute()
+            )
         )
         self._label_id_cache[name] = new_label["id"]
         return new_label["id"]
@@ -258,9 +281,7 @@ class LiveGmailClient:
 
         # Collect any X-EA-* custom headers
         extra = {
-            h["name"]: h["value"]
-            for h in headers_raw
-            if h["name"].startswith("X-EA-")
+            h["name"]: h["value"] for h in headers_raw if h["name"].startswith("X-EA-")
         }
 
         return GmailMessage(
@@ -291,7 +312,9 @@ def _decode_body(payload: dict) -> str:
         if part.get("mimeType") == "text/plain":
             part_data = part.get("body", {}).get("data", "")
             if part_data:
-                return base64.urlsafe_b64decode(part_data).decode("utf-8", errors="replace")
+                return base64.urlsafe_b64decode(part_data).decode(
+                    "utf-8", errors="replace"
+                )
         # Recurse into nested multipart
         nested = _decode_body(part)
         if nested:

@@ -39,6 +39,7 @@ def _resolve(path: str | Path | None, config_key: str, default: str) -> Path:
         return Path(path)
     try:
         from ea.config import load_config
+
         cfg = load_config()
         value = cfg.get("auth", {}).get(config_key)
         if value:

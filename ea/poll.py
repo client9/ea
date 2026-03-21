@@ -42,17 +42,17 @@ def _item(thread_id, action, **extra) -> dict:
 
 
 def run_poll(
-    gmail,           # GmailClient (live or FakeGmailClient)
-    calendar,        # CalendarClient (live or fixture)
+    gmail,  # GmailClient (live or FakeGmailClient)
+    calendar,  # CalendarClient (live or fixture)
     state: StateStore,
     config: dict,
     *,
-    parser=None,              # fn(thread_text) -> parsed dict; defaults to parse_meeting_request
-    confirm_eval_fn=None,     # fn(reply_text, entry) -> ScheduleResult; for modification replies
-    external_reply_fn=None,   # fn(reply_text, entry) -> (action, slots); for outbound replies
-    find_slots_fn=None,       # fn(parsed, config, calendar) -> list[dict]; for suggest_times
-    find_event_fn=None,       # fn(parsed, calendar, tz_name) -> dict|list|None; for cancel/reschedule
-    dry_run: bool = False,    # log actions but skip all sends/creates/labels
+    parser=None,  # fn(thread_text) -> parsed dict; defaults to parse_meeting_request
+    confirm_eval_fn=None,  # fn(reply_text, entry) -> ScheduleResult; for modification replies
+    external_reply_fn=None,  # fn(reply_text, entry) -> (action, slots); for outbound replies
+    find_slots_fn=None,  # fn(parsed, config, calendar) -> list[dict]; for suggest_times
+    find_event_fn=None,  # fn(parsed, calendar, tz_name) -> dict|list|None; for cancel/reschedule
+    dry_run: bool = False,  # log actions but skip all sends/creates/labels
 ) -> dict:
     """
     Run one full poll cycle.
@@ -70,9 +70,12 @@ def run_poll(
 
     if parser is None:
         from ea.parser.meeting_parser import parse_meeting_request
+
         tz_name = schedule.get("timezone", "UTC")
+
         def parser(text):
             return parse_meeting_request(text, tz_name=tz_name)
+
     working_hours = schedule.get("working_hours", {})
     preferred_hours = schedule.get("preferred_hours", {})
     timezone_name = schedule.get("timezone", "UTC")
@@ -96,14 +99,19 @@ def run_poll(
             gmail.apply_label(thread_id, "ea-expired")
             state.delete(thread_id)
         _log.info(
-            "expired %s: %s", thread_id, topic or "(no topic)",
+            "expired %s: %s",
+            thread_id,
+            topic or "(no topic)",
             extra={"thread_id": thread_id, "action": "expired", "topic": topic},
         )
-        summary["expired"].append(_item(
-            thread_id, "expired",
-            state_type=entry.get("type"),
-            topic=topic,
-        ))
+        summary["expired"].append(
+            _item(
+                thread_id,
+                "expired",
+                state_type=entry.get("type"),
+                topic=topic,
+            )
+        )
 
     # ------------------------------------------------------------------
     # Pass 1 — New EA: triggers
@@ -123,20 +131,30 @@ def run_poll(
             thread_text = thread_to_text(thread)
             parsed = parser(thread_text)
             intent = parsed.get("intent")
-            topic  = parsed.get("topic") or subject
+            topic = parsed.get("topic") or subject
 
             if dry_run:
-                print(f"[dry-run] thread {thread.id}: intent={intent}, subject={subject!r}")
+                print(
+                    f"[dry-run] thread {thread.id}: intent={intent}, subject={subject!r}"
+                )
                 action = f"dry-run-{intent or 'none'}"
             elif intent == "suggest_times":
                 action = handle_suggest_times_trigger(
-                    parsed, thread, gmail, calendar, state, config,
+                    parsed,
+                    thread,
+                    gmail,
+                    calendar,
+                    state,
+                    config,
                     find_slots_fn=find_slots_fn,
                 )
             elif intent == "block_time":
                 if parsed.get("all_day"):
                     from ea.responder import handle_allday_block
-                    action = handle_allday_block(parsed, thread, gmail, calendar, config)
+
+                    action = handle_allday_block(
+                        parsed, thread, gmail, calendar, config
+                    )
                 else:
                     result = evaluate_parsed(
                         parsed=parsed,
@@ -146,7 +164,9 @@ def run_poll(
                         calendar=calendar,
                         my_email=my_email,
                     )
-                    action = handle_block_time_result(result, thread, gmail, calendar, state, config)
+                    action = handle_block_time_result(
+                        result, thread, gmail, calendar, state, config
+                    )
             elif intent == "meeting_request":
                 result = evaluate_parsed(
                     parsed=parsed,
@@ -156,10 +176,18 @@ def run_poll(
                     calendar=calendar,
                     my_email=my_email,
                 )
-                action = handle_inbound_result(result, thread, gmail, calendar, state, config,
-                                           find_slots_fn=find_slots_fn)
+                action = handle_inbound_result(
+                    result,
+                    thread,
+                    gmail,
+                    calendar,
+                    state,
+                    config,
+                    find_slots_fn=find_slots_fn,
+                )
             elif intent in ("cancel_event", "reschedule"):
                 from ea.scheduler import find_matching_event
+
                 search_dts = []
                 for pt in parsed.get("proposed_times") or []:
                     search_dts.extend(pt.get("datetimes") or [])
@@ -173,12 +201,17 @@ def run_poll(
                         tz_name=timezone_name,
                     )
                 if intent == "cancel_event":
-                    action = handle_cancel_result(match, parsed, thread, gmail, calendar, state, config)
+                    action = handle_cancel_result(
+                        match, parsed, thread, gmail, calendar, state, config
+                    )
                 else:
-                    action = handle_reschedule_result(match, parsed, thread, gmail, calendar, state, config)
+                    action = handle_reschedule_result(
+                        match, parsed, thread, gmail, calendar, state, config
+                    )
             else:
                 if not dry_run:
                     import json as _json
+
                     gmail.send_email(
                         to=my_email,
                         subject=f"EA: could not parse — {subject}",
@@ -198,7 +231,7 @@ def run_poll(
                 extra={"thread_id": thread.id},
             )
             intent = None
-            topic  = subject
+            topic = subject
             action = "error"
             if not dry_run:
                 try:
@@ -216,20 +249,33 @@ def run_poll(
                 except Exception as notify_exc:
                     _log.error(
                         "Failed to send error notification for thread %s: %s",
-                        thread.id, notify_exc,
+                        thread.id,
+                        notify_exc,
                     )
 
         _log.info(
             "pass1 %s: %s (intent=%s topic=%r subject=%r)",
-            thread.id, action, intent, topic, subject,
-            extra={"thread_id": thread.id, "action": action, "intent": intent, "topic": topic},
+            thread.id,
+            action,
+            intent,
+            topic,
+            subject,
+            extra={
+                "thread_id": thread.id,
+                "action": action,
+                "intent": intent,
+                "topic": topic,
+            },
         )
-        summary["pass1"].append(_item(
-            thread.id, action,
-            intent=intent,
-            topic=topic,
-            subject=subject,
-        ))
+        summary["pass1"].append(
+            _item(
+                thread.id,
+                action,
+                intent=intent,
+                topic=topic,
+                subject=subject,
+            )
+        )
 
     # ------------------------------------------------------------------
     # Pass 2 — Pending confirmations (inbound)
@@ -240,7 +286,9 @@ def run_poll(
             continue
         seen = entry.get("confirmation_messages_seen", 1)
         new_messages = conf_thread.messages[seen:]
-        my_replies = [m for m in new_messages if m.from_addr.lower() == my_email.lower()]
+        my_replies = [
+            m for m in new_messages if m.from_addr.lower() == my_email.lower()
+        ]
         if not my_replies:
             continue
 
@@ -258,9 +306,12 @@ def run_poll(
             )
             # Update seen count (only if thread still exists in state)
             if state.get(thread_id):
-                state.update(thread_id, {
-                    "confirmation_messages_seen": len(conf_thread.messages),
-                })
+                state.update(
+                    thread_id,
+                    {
+                        "confirmation_messages_seen": len(conf_thread.messages),
+                    },
+                )
         except Exception as exc:
             _log.error(
                 f"Pass 2 error on thread {thread_id}: {exc}",
@@ -271,15 +322,23 @@ def run_poll(
 
         _log.info(
             "pass2 %s: %s (topic=%r)",
-            thread_id, action, entry.get("schedule_result", {}).get("topic"),
-            extra={"thread_id": thread_id, "action": action,
-                   "topic": entry.get("schedule_result", {}).get("topic")},
+            thread_id,
+            action,
+            entry.get("schedule_result", {}).get("topic"),
+            extra={
+                "thread_id": thread_id,
+                "action": action,
+                "topic": entry.get("schedule_result", {}).get("topic"),
+            },
         )
-        summary["pass2"].append(_item(
-            thread_id, action,
-            state_type="pending_confirmation",
-            topic=entry.get("schedule_result", {}).get("topic"),
-        ))
+        summary["pass2"].append(
+            _item(
+                thread_id,
+                action,
+                state_type="pending_confirmation",
+                topic=entry.get("schedule_result", {}).get("topic"),
+            )
+        )
 
     # ------------------------------------------------------------------
     # Pass 3 — Pending external replies (outbound)
@@ -290,7 +349,9 @@ def run_poll(
             continue
         seen = entry.get("original_messages_seen", 1)
         new_messages = orig_thread.messages[seen:]
-        their_replies = [m for m in new_messages if m.from_addr.lower() != my_email.lower()]
+        their_replies = [
+            m for m in new_messages if m.from_addr.lower() != my_email.lower()
+        ]
         if not their_replies:
             continue
 
@@ -307,9 +368,12 @@ def run_poll(
                 find_slots_fn=external_reply_fn,
             )
             if state.get(thread_id):
-                state.update(thread_id, {
-                    "original_messages_seen": len(orig_thread.messages),
-                })
+                state.update(
+                    thread_id,
+                    {
+                        "original_messages_seen": len(orig_thread.messages),
+                    },
+                )
         except Exception as exc:
             _log.error(
                 f"Pass 3 error on thread {thread_id}: {exc}",
@@ -320,14 +384,23 @@ def run_poll(
 
         _log.info(
             "pass3 %s: %s (topic=%r)",
-            thread_id, action, entry.get("topic"),
-            extra={"thread_id": thread_id, "action": action, "topic": entry.get("topic")},
+            thread_id,
+            action,
+            entry.get("topic"),
+            extra={
+                "thread_id": thread_id,
+                "action": action,
+                "topic": entry.get("topic"),
+            },
         )
-        summary["pass3"].append(_item(
-            thread_id, action,
-            state_type="pending_external_reply",
-            topic=entry.get("topic"),
-        ))
+        summary["pass3"].append(
+            _item(
+                thread_id,
+                action,
+                state_type="pending_external_reply",
+                topic=entry.get("topic"),
+            )
+        )
 
     return summary
 
@@ -336,8 +409,8 @@ def run_poll(
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-_REPLY_PREFIX_RE = re.compile(r'^(?:Re|Fwd?|AW|WG):\s*', re.IGNORECASE)
-_QUOTED_LINE_RE  = re.compile(r'^>.*$', re.MULTILINE)
+_REPLY_PREFIX_RE = re.compile(r"^(?:Re|Fwd?|AW|WG):\s*", re.IGNORECASE)
+_QUOTED_LINE_RE = re.compile(r"^>.*$", re.MULTILINE)
 
 
 def _find_ea_trigger_in_messages(messages, my_email: str) -> str | None:
@@ -356,7 +429,7 @@ def _find_ea_trigger_in_messages(messages, my_email: str) -> str | None:
 
         # Body scan — strip quoted lines (lines starting with >) first
         clean_body = _QUOTED_LINE_RE.sub("", msg.body)
-        match = re.search(r'EA:\s*(.+)', clean_body, re.IGNORECASE)
+        match = re.search(r"EA:\s*(.+)", clean_body, re.IGNORECASE)
         if match:
             return match.group(1).strip()
 
@@ -364,7 +437,7 @@ def _find_ea_trigger_in_messages(messages, my_email: str) -> str | None:
         if subject_cmd is None:
             subject = msg.subject.strip()
             if not _REPLY_PREFIX_RE.match(subject):
-                match = re.match(r'EA:\s*(.+)', subject, re.IGNORECASE)
+                match = re.match(r"EA:\s*(.+)", subject, re.IGNORECASE)
                 if match:
                     subject_cmd = match.group(1).strip()
 

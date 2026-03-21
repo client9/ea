@@ -63,10 +63,12 @@ def configure(log_file: str = "ea.log", quiet: bool = False) -> None:
     if not quiet:
         sh = logging.StreamHandler(sys.stdout)
         sh.setLevel(logging.INFO)
-        sh.setFormatter(logging.Formatter(
-            "%(asctime)s  %(levelname)-7s  %(message)s",
-            datefmt="%H:%M:%S",
-        ))
+        sh.setFormatter(
+            logging.Formatter(
+                "%(asctime)s  %(levelname)-7s  %(message)s",
+                datefmt="%H:%M:%S",
+            )
+        )
         root.addHandler(sh)
 
 

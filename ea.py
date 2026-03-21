@@ -52,7 +52,9 @@ def print_result(text: str, result: dict, source_label: str = ""):
 
     if intent == "block_time":
         print(f"  🗓️  BLOCK:       {result.get('topic', 'N/A')}")
-        print(f"  ⏱️  DURATION:    {result.get('duration_minutes', 'Not specified')} min")
+        print(
+            f"  ⏱️  DURATION:    {result.get('duration_minutes', 'Not specified')} min"
+        )
         print(f"  🌍 TIMEZONE:    {result.get('timezone', 'Not specified')}")
         _print_times(result.get("proposed_times", []), label="TIME")
         print("=" * width + "\n")
@@ -170,11 +172,11 @@ def _run_status():
 
         # topic lives in different places depending on entry type
         sr = entry.get("schedule_result") or {}
-        topic = (entry.get("topic") or sr.get("topic") or "")[:COL["topic"] - 2]
+        topic = (entry.get("topic") or sr.get("topic") or "")[: COL["topic"] - 2]
 
         # attendees
         attendees = entry.get("attendees") or sr.get("attendees") or []
-        attendees_str = ", ".join(attendees)[:COL["attendees"] - 2]
+        attendees_str = ", ".join(attendees)[: COL["attendees"] - 2]
 
         # expiry — show relative time
         expires_raw = entry.get("expires_at", "")
@@ -190,14 +192,16 @@ def _run_status():
                 elif total_sec < 86400:
                     expires_str = f"{total_sec // 3600}h {(total_sec % 3600) // 60}m"
                 else:
-                    expires_str = f"{total_sec // 86400}d {(total_sec % 86400) // 3600}h"
+                    expires_str = (
+                        f"{total_sec // 86400}d {(total_sec % 86400) // 3600}h"
+                    )
             except ValueError:
                 expires_str = expires_raw[:19]
         else:
             expires_str = ""
 
         print(
-            f"{thread_id[:COL['thread']-1]:<{COL['thread']}}"
+            f"{thread_id[: COL['thread'] - 1]:<{COL['thread']}}"
             f"{entry_type:<{COL['type']}}"
             f"{topic:<{COL['topic']}}"
             f"{attendees_str:<{COL['attendees']}}"
@@ -208,29 +212,41 @@ def _run_status():
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="EA Assistant — scheduling via email"
-    )
+    parser = argparse.ArgumentParser(description="EA Assistant — scheduling via email")
     subparsers = parser.add_subparsers(dest="command")
 
     def _add_auth_args(p):
-        p.add_argument("--credentials", metavar="FILE",
-                       help="Path to credentials.json (overrides config.toml [auth])")
-        p.add_argument("--token", metavar="FILE",
-                       help="Path to token.json (overrides config.toml [auth])")
+        p.add_argument(
+            "--credentials",
+            metavar="FILE",
+            help="Path to credentials.json (overrides config.toml [auth])",
+        )
+        p.add_argument(
+            "--token",
+            metavar="FILE",
+            help="Path to token.json (overrides config.toml [auth])",
+        )
 
     # --- auth subcommand ---
     auth_parser = subparsers.add_parser("auth", help="Manage Google OAuth credentials")
-    auth_parser.add_argument("--check", action="store_true", help="Show current auth status")
+    auth_parser.add_argument(
+        "--check", action="store_true", help="Show current auth status"
+    )
     _add_auth_args(auth_parser)
 
     # --- poll subcommand ---
     poll_parser = subparsers.add_parser("poll", help="Run one poll cycle")
-    poll_parser.add_argument("--dry-run", action="store_true",
-                             help="Show what would happen without sending anything")
-    poll_parser.add_argument("--quiet", action="store_true",
-                             help="Suppress all stdout; errors go to ea.log only. "
-                                  "Use with launchd/cron to avoid notification emails.")
+    poll_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would happen without sending anything",
+    )
+    poll_parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress all stdout; errors go to ea.log only. "
+        "Use with launchd/cron to avoid notification emails.",
+    )
     _add_auth_args(poll_parser)
 
     # --- run subcommand ---
@@ -245,7 +261,9 @@ def main():
 
     # --- Legacy positional / file commands (parser debugging) ---
     subparsers.add_parser("testdata", help="Parse all files in testdata/")
-    file_p = subparsers.add_parser("parse", help="Parse a meeting request from text or file")
+    file_p = subparsers.add_parser(
+        "parse", help="Parse a meeting request from text or file"
+    )
     file_p.add_argument("text", nargs="?", help="Meeting request text")
     file_p.add_argument("--file", "-f", help="Path to a text file")
 
@@ -260,6 +278,7 @@ def main():
 
     if args.command == "auth":
         from ea.auth import check_auth, run_auth_flow
+
         if args.check:
             check_auth(token_file=args.token)
         else:
@@ -268,6 +287,7 @@ def main():
     elif args.command == "poll":
         from ea.log import configure
         from ea.runner import run_once, _format_item
+
         quiet = args.quiet
         configure(quiet=quiet)
         try:
@@ -293,6 +313,7 @@ def main():
 
     elif args.command == "run":
         from ea.runner import run_loop
+
         run_loop(credentials_file=args.credentials, token_file=args.token)
 
     elif args.command == "status":
@@ -300,6 +321,7 @@ def main():
 
     elif args.command == "reset":
         from ea.state import DEFAULT_STATE_FILE
+
         path = Path(DEFAULT_STATE_FILE)
         if path.exists():
             path.unlink()

@@ -14,7 +14,7 @@ from ea.gmail import GmailMessage
 from ea.poll import _find_ea_trigger_in_messages
 
 MY_EMAIL = "me@example.com"
-OTHER   = "bob@example.com"
+OTHER = "bob@example.com"
 
 
 def _msg(subject, body, from_addr=MY_EMAIL, *, i=0):
@@ -33,17 +33,23 @@ def _msg(subject, body, from_addr=MY_EMAIL, *, i=0):
 # Subject-line trigger (happy path)
 # ---------------------------------------------------------------------------
 
-class TestSubjectTrigger:
 
+class TestSubjectTrigger:
     def test_command_in_subject_no_body(self):
         msgs = [_msg("EA: block Friday 3-4pm", "")]
         assert _find_ea_trigger_in_messages(msgs, MY_EMAIL) == "block Friday 3-4pm"
 
     def test_command_in_subject_with_unrelated_body(self):
-        msgs = [_msg("EA: schedule coffee with bob@example.com Thursday 2pm",
-                     "Just a note to myself.")]
-        assert _find_ea_trigger_in_messages(msgs, MY_EMAIL) == \
-            "schedule coffee with bob@example.com Thursday 2pm"
+        msgs = [
+            _msg(
+                "EA: schedule coffee with bob@example.com Thursday 2pm",
+                "Just a note to myself.",
+            )
+        ]
+        assert (
+            _find_ea_trigger_in_messages(msgs, MY_EMAIL)
+            == "schedule coffee with bob@example.com Thursday 2pm"
+        )
 
     def test_subject_case_insensitive(self):
         msgs = [_msg("ea: block Friday 3-4pm", "")]
@@ -59,19 +65,22 @@ class TestSubjectTrigger:
 # Reply / forward prefixes must suppress the subject trigger
 # ---------------------------------------------------------------------------
 
-class TestReplyPrefixIgnored:
 
-    @pytest.mark.parametrize("prefix", [
-        "Re:",
-        "re:",
-        "RE:",
-        "Fwd:",
-        "FWD:",
-        "Fw:",
-        "FW:",
-        "AW:",    # German reply
-        "WG:",    # German forward
-    ])
+class TestReplyPrefixIgnored:
+    @pytest.mark.parametrize(
+        "prefix",
+        [
+            "Re:",
+            "re:",
+            "RE:",
+            "Fwd:",
+            "FWD:",
+            "Fw:",
+            "FW:",
+            "AW:",  # German reply
+            "WG:",  # German forward
+        ],
+    )
     def test_reply_prefix_not_triggered(self, prefix):
         subject = f"{prefix} EA: schedule coffee with bob@example.com Thursday 2pm"
         msgs = [_msg(subject, "")]
@@ -80,15 +89,17 @@ class TestReplyPrefixIgnored:
     def test_reply_prefix_with_body_command_still_triggers(self):
         """A reply whose body contains a new EA: command should still fire."""
         msgs = [_msg("Re: EA: old command", "EA: reschedule to Friday 2pm")]
-        assert _find_ea_trigger_in_messages(msgs, MY_EMAIL) == "reschedule to Friday 2pm"
+        assert (
+            _find_ea_trigger_in_messages(msgs, MY_EMAIL) == "reschedule to Friday 2pm"
+        )
 
 
 # ---------------------------------------------------------------------------
 # Quoted body lines must not re-fire a prior command
 # ---------------------------------------------------------------------------
 
-class TestQuotedBodyIgnored:
 
+class TestQuotedBodyIgnored:
     def test_only_quoted_ea_line_does_not_trigger(self):
         body = (
             "> EA: schedule coffee with bob@example.com Thursday 2pm\n"
@@ -99,13 +110,11 @@ class TestQuotedBodyIgnored:
         assert _find_ea_trigger_in_messages(msgs, MY_EMAIL) is None
 
     def test_quoted_ea_ignored_fresh_command_fires(self):
-        body = (
-            "> EA: schedule coffee Thursday 2pm\n"
-            "\n"
-            "EA: reschedule to Friday 3pm"
-        )
+        body = "> EA: schedule coffee Thursday 2pm\n\nEA: reschedule to Friday 3pm"
         msgs = [_msg("Re: EA: schedule coffee", body)]
-        assert _find_ea_trigger_in_messages(msgs, MY_EMAIL) == "reschedule to Friday 3pm"
+        assert (
+            _find_ea_trigger_in_messages(msgs, MY_EMAIL) == "reschedule to Friday 3pm"
+        )
 
     def test_multiple_quoted_lines(self):
         body = (
@@ -123,21 +132,23 @@ class TestQuotedBodyIgnored:
 # Body takes priority over subject
 # ---------------------------------------------------------------------------
 
-class TestBodyPriority:
 
+class TestBodyPriority:
     def test_body_command_beats_subject_command(self):
         msgs = [_msg("EA: block Friday 3-4pm", "EA: reschedule standup to Monday 10am")]
         # Body wins
-        assert _find_ea_trigger_in_messages(msgs, MY_EMAIL) == \
-            "reschedule standup to Monday 10am"
+        assert (
+            _find_ea_trigger_in_messages(msgs, MY_EMAIL)
+            == "reschedule standup to Monday 10am"
+        )
 
 
 # ---------------------------------------------------------------------------
 # Only my_email is checked
 # ---------------------------------------------------------------------------
 
-class TestOnlyMyEmail:
 
+class TestOnlyMyEmail:
     def test_subject_command_from_other_ignored(self):
         msgs = [_msg("EA: schedule something", "", from_addr=OTHER)]
         assert _find_ea_trigger_in_messages(msgs, MY_EMAIL) is None
@@ -182,8 +193,8 @@ class TestOnlyMyEmail:
 # No trigger cases
 # ---------------------------------------------------------------------------
 
-class TestNoTrigger:
 
+class TestNoTrigger:
     def test_empty_thread(self):
         assert _find_ea_trigger_in_messages([], MY_EMAIL) is None
 

@@ -19,8 +19,10 @@ from ea.llm_util import strip_json_fences
 from ea.network import call_with_retry
 from ea.scheduler import ScheduleResult, evaluate_parsed
 
+
 def _client() -> anthropic.Anthropic:
     from ea.network import get_api_timeout
+
     return anthropic.Anthropic(
         api_key=os.environ.get("ANTHROPIC_API_KEY"),
         timeout=get_api_timeout(),
@@ -72,14 +74,18 @@ def classify_confirmation_reply(
     my_email = config["user"]["email"]
     sr = entry.get("schedule_result", {})
 
-    raw = strip_json_fences(call_with_retry(
-        lambda: _client().messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=500,
-            system=_CONFIRM_SYSTEM,
-            messages=[{"role": "user", "content": reply_text}],
+    raw = strip_json_fences(
+        call_with_retry(
+            lambda: _client().messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=500,
+                system=_CONFIRM_SYSTEM,
+                messages=[{"role": "user", "content": reply_text}],
+            )
         )
-    ).content[0].text.strip())
+        .content[0]
+        .text.strip()
+    )
 
     try:
         classification = json.loads(raw)
@@ -97,8 +103,9 @@ def classify_confirmation_reply(
 
     if action == "yes":
         from datetime import datetime
+
         start = datetime.fromisoformat(sr["slot_start"])
-        end   = datetime.fromisoformat(sr["slot_end"])
+        end = datetime.fromisoformat(sr["slot_end"])
         return ScheduleResult(
             outcome="open",
             slot_start=start,
@@ -124,7 +131,8 @@ def classify_confirmation_reply(
         "topic": sr.get("topic"),
         "attendees": [a for a in sr.get("attendees", []) if a != my_email],
         "proposed_times": classification.get("proposed_times") or [],
-        "duration_minutes": classification.get("duration_minutes") or sr.get("duration_minutes"),
+        "duration_minutes": classification.get("duration_minutes")
+        or sr.get("duration_minutes"),
         "ambiguities": [],
         "urgency": "medium",
     }
@@ -177,17 +185,24 @@ def classify_external_reply(
     """
     suggested_slots = entry.get("suggested_slots", [])
 
-    slot_lines = "\n".join(f"  {i}: {slot['start']} – {slot['end']}" for i, slot in enumerate(suggested_slots))
+    slot_lines = "\n".join(
+        f"  {i}: {slot['start']} – {slot['end']}"
+        for i, slot in enumerate(suggested_slots)
+    )
     context = f"Suggested slots:\n{slot_lines}\n\nTheir reply:\n{reply_text}"
 
-    raw = strip_json_fences(call_with_retry(
-        lambda: _client().messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=300,
-            system=_EXTERNAL_SYSTEM,
-            messages=[{"role": "user", "content": context}],
+    raw = strip_json_fences(
+        call_with_retry(
+            lambda: _client().messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=300,
+                system=_EXTERNAL_SYSTEM,
+                messages=[{"role": "user", "content": context}],
+            )
         )
-    ).content[0].text.strip())
+        .content[0]
+        .text.strip()
+    )
 
     try:
         classification = json.loads(raw)

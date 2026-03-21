@@ -20,10 +20,10 @@ import logging
 import socket
 import time
 
-_attempts    = 1
-_base_delay  = 1.0
-_cap         = 0.0    # 0 = no cap
-_api_timeout = 30.0   # per-call timeout in seconds
+_attempts = 1
+_base_delay = 1.0
+_cap = 0.0  # 0 = no cap
+_api_timeout = 30.0  # per-call timeout in seconds
 
 _log = logging.getLogger("ea.network")
 
@@ -49,9 +49,9 @@ def configure(
                  get_api_timeout(). Default: 30s.
     """
     global _attempts, _base_delay, _cap, _api_timeout
-    _attempts    = attempts
-    _base_delay  = base_delay
-    _cap         = cap
+    _attempts = attempts
+    _base_delay = base_delay
+    _cap = cap
     _api_timeout = api_timeout
     socket.setdefaulttimeout(api_timeout)
 
@@ -67,6 +67,7 @@ def is_timeout_error(exc: BaseException) -> bool:
         return True
     try:
         import anthropic as _ant
+
         if isinstance(exc, _ant.APITimeoutError):
             return True
     except ImportError:
@@ -82,6 +83,7 @@ def is_transient_error(exc: BaseException) -> bool:
 
     try:
         import requests.exceptions as _req
+
         if isinstance(exc, (_req.ConnectionError, _req.Timeout)):
             return True
     except ImportError:
@@ -89,6 +91,7 @@ def is_transient_error(exc: BaseException) -> bool:
 
     try:
         from googleapiclient.errors import HttpError
+
         if isinstance(exc, HttpError):
             status = int(exc.resp.status) if exc.resp else 0
             return status == 429 or status >= 500
@@ -97,6 +100,7 @@ def is_transient_error(exc: BaseException) -> bool:
 
     try:
         import anthropic as _ant
+
         if isinstance(exc, (_ant.APIConnectionError, _ant.RateLimitError)):
             return True
     except ImportError:
@@ -139,14 +143,19 @@ def call_with_retry(fn, *args, **kwargs):
                 if is_timeout_error(exc):
                     _log.warning(
                         "Timeout (attempt %d/%d), retrying immediately: %s",
-                        attempt + 1, _attempts, exc,
+                        attempt + 1,
+                        _attempts,
+                        exc,
                     )
                     # No sleep — backoff doesn't help a slow server.
                 else:
                     wait = delay if _cap <= 0 else min(delay, _cap)
                     _log.warning(
                         "Connection error (attempt %d/%d), retrying in %.1fs: %s",
-                        attempt + 1, _attempts, wait, exc,
+                        attempt + 1,
+                        _attempts,
+                        wait,
+                        exc,
                     )
                     time.sleep(wait)
                     delay *= 2

@@ -21,13 +21,15 @@ EXPIRY_HOURS = 48
 def _fmt_range(start: datetime, end: datetime) -> str:
     """Format a time range as 'Thursday Mar 19, 02:00–03:00 PM PDT'."""
     return (
-        start.strftime("%A %b %d, %I:%M") +
-        end.strftime("–%I:%M %p ") +
-        start.strftime("%Z")
+        start.strftime("%A %b %d, %I:%M")
+        + end.strftime("–%I:%M %p ")
+        + start.strftime("%Z")
     )
 
 
-def _send_calendar_error(gmail, my_email: str, thread_id: str, subject: str, action: str, exc: Exception) -> str:
+def _send_calendar_error(
+    gmail, my_email: str, thread_id: str, subject: str, action: str, exc: Exception
+) -> str:
     """Send a calendar-error notification email and return 'calendar-error'."""
     gmail.send_email(
         to=my_email,
@@ -53,7 +55,9 @@ def _handle_event_not_found(gmail, my_email: str, thread_id: str, topic: str) ->
     return "notified-not-found"
 
 
-def _handle_event_ambiguous(gmail, my_email: str, thread_id: str, topic: str, match: list, intent_label: str) -> str:
+def _handle_event_ambiguous(
+    gmail, my_email: str, thread_id: str, topic: str, match: list, intent_label: str
+) -> str:
     lines = "\n".join(
         f"  • {ev.get('summary', '?')}  —  "
         f"{(ev.get('start') or {}).get('dateTime', '?')}"
@@ -72,7 +76,9 @@ def _handle_event_ambiguous(gmail, my_email: str, thread_id: str, topic: str, ma
     return "notified-ambiguous"
 
 
-def _local_slot_desc(start: datetime, end: datetime, config: dict, attendee_tz: str | None = None) -> str:
+def _local_slot_desc(
+    start: datetime, end: datetime, config: dict, attendee_tz: str | None = None
+) -> str:
     """
     Format a slot in the owner's local timezone.
     If attendee_tz is set and differs from the owner's tz, appends their local
@@ -81,19 +87,19 @@ def _local_slot_desc(start: datetime, end: datetime, config: dict, attendee_tz: 
     tz_name = config.get("schedule", {}).get("timezone", "UTC")
     tz = ZoneInfo(tz_name)
     local_start = start.astimezone(tz)
-    local_end   = end.astimezone(tz)
+    local_end = end.astimezone(tz)
     desc = _fmt_range(local_start, local_end)
     if attendee_tz and attendee_tz != tz_name:
         try:
             att_tz = ZoneInfo(attendee_tz)
             att_start = start.astimezone(att_tz)
-            att_end   = end.astimezone(att_tz)
+            att_end = end.astimezone(att_tz)
             desc += (
-                " (" +
-                att_start.strftime("%I:%M") +
-                att_end.strftime("–%I:%M %p ") +
-                att_start.strftime("%Z") +
-                " for them)"
+                " ("
+                + att_start.strftime("%I:%M")
+                + att_end.strftime("–%I:%M %p ")
+                + att_start.strftime("%Z")
+                + " for them)"
             )
         except ZoneInfoNotFoundError:
             pass  # unrecognised tz string — skip the annotation
@@ -112,11 +118,12 @@ def _expiry() -> str:
 # Inbound: handle the result of an EA: please schedule trigger
 # ---------------------------------------------------------------------------
 
+
 def handle_inbound_result(
     result: ScheduleResult,
-    original_thread,     # GmailThread
-    gmail,               # GmailClient (live or fake)
-    calendar,            # CalendarClient (live or fake)
+    original_thread,  # GmailThread
+    gmail,  # GmailClient (live or fake)
+    calendar,  # CalendarClient (live or fake)
     state: StateStore,
     config: dict,
     find_slots_fn=None,  # injectable: fn(parsed, config, calendar) -> list[dict]
@@ -142,8 +149,12 @@ def handle_inbound_result(
                 self_email=my_email,
             )
         except Exception as e:
-            return _send_calendar_error(gmail, my_email, thread_id, subject, "schedule a meeting", e)
-        slot_desc = _local_slot_desc(result.slot_start, result.slot_end, config, attendee_tz)
+            return _send_calendar_error(
+                gmail, my_email, thread_id, subject, "schedule a meeting", e
+            )
+        slot_desc = _local_slot_desc(
+            result.slot_start, result.slot_end, config, attendee_tz
+        )
         gmail.send_email(
             to=my_email,
             subject=f"EA: booked — {topic}",
@@ -170,6 +181,7 @@ def handle_inbound_result(
 
     if result.outcome == "busy":
         from ea.scheduler import find_slots
+
         schedule = config.get("schedule", {})
 
         if find_slots_fn:
@@ -204,19 +216,22 @@ def handle_inbound_result(
                 ),
                 thread_id=thread_id,
             )
-            state.set(thread_id, {
-                "type": "pending_external_reply",
-                "created_at": _now(),
-                "expires_at": _expiry(),
-                "original_messages_seen": len(original_thread.messages),
-                "topic": result.topic,
-                "recipient": recipient,
-                "subject": subject,
-                "attendees": result.attendees,
-                "duration_minutes": result.duration_minutes,
-                "suggested_slots": slots,
-                "attendee_tz": attendee_tz,
-            })
+            state.set(
+                thread_id,
+                {
+                    "type": "pending_external_reply",
+                    "created_at": _now(),
+                    "expires_at": _expiry(),
+                    "original_messages_seen": len(original_thread.messages),
+                    "topic": result.topic,
+                    "recipient": recipient,
+                    "subject": subject,
+                    "attendees": result.attendees,
+                    "duration_minutes": result.duration_minutes,
+                    "suggested_slots": slots,
+                    "attendee_tz": attendee_tz,
+                },
+            )
             return "alternatives-sent"
 
         # No alternatives found — notify the owner
@@ -235,7 +250,9 @@ def handle_inbound_result(
         return "notified-busy"
 
     if result.outcome == "needs_confirmation":
-        slot_desc = _local_slot_desc(result.slot_start, result.slot_end, config, attendee_tz)
+        slot_desc = _local_slot_desc(
+            result.slot_start, result.slot_end, config, attendee_tz
+        )
         body = (
             f"EA found a slot outside working hours:\n\n"
             f"  {slot_desc} ({result.slot_type})\n\n"
@@ -262,22 +279,25 @@ def handle_inbound_result(
             msgs_seen = 1
             # Prevent Pass 1 from treating the new thread as a fresh EA: command.
             gmail.apply_label(conf_msg.thread_id, "ea-notified")
-        state.set(thread_id, {
-            "type": "pending_confirmation",
-            "confirmation_thread_id": conf_msg.thread_id,
-            "created_at": _now(),
-            "expires_at": _expiry(),
-            "confirmation_messages_seen": msgs_seen,
-            "schedule_result": {
-                "outcome": result.outcome,
-                "slot_start": result.slot_start.isoformat(),
-                "slot_end": result.slot_end.isoformat(),
-                "slot_type": result.slot_type,
-                "topic": result.topic,
-                "attendees": result.attendees,
-                "duration_minutes": result.duration_minutes,
+        state.set(
+            thread_id,
+            {
+                "type": "pending_confirmation",
+                "confirmation_thread_id": conf_msg.thread_id,
+                "created_at": _now(),
+                "expires_at": _expiry(),
+                "confirmation_messages_seen": msgs_seen,
+                "schedule_result": {
+                    "outcome": result.outcome,
+                    "slot_start": result.slot_start.isoformat(),
+                    "slot_end": result.slot_end.isoformat(),
+                    "slot_type": result.slot_type,
+                    "topic": result.topic,
+                    "attendees": result.attendees,
+                    "duration_minutes": result.duration_minutes,
+                },
             },
-        })
+        )
         return "pending-confirmation"
 
     return "no-action"
@@ -287,9 +307,10 @@ def handle_inbound_result(
 # Inbound: handle a block_time result (solo calendar block, no invites)
 # ---------------------------------------------------------------------------
 
+
 def handle_block_time_result(
     result: ScheduleResult,
-    original_thread,     # GmailThread
+    original_thread,  # GmailThread
     gmail,
     calendar,
     state: StateStore,
@@ -314,7 +335,9 @@ def handle_block_time_result(
                 self_email=my_email,
             )
         except Exception as e:
-            return _send_calendar_error(gmail, my_email, thread_id, subject, "block time", e)
+            return _send_calendar_error(
+                gmail, my_email, thread_id, subject, "block time", e
+            )
 
         slot_desc = _local_slot_desc(result.slot_start, result.slot_end, config)
         gmail.send_email(
@@ -327,9 +350,8 @@ def handle_block_time_result(
         return "scheduled"
 
     if result.outcome == "ambiguous":
-        body = (
-            "EA could not block time — the request was ambiguous:\n\n"
-            + "\n".join(f"  • {a}" for a in result.ambiguities)
+        body = "EA could not block time — the request was ambiguous:\n\n" + "\n".join(
+            f"  • {a}" for a in result.ambiguities
         )
         gmail.send_email(
             to=my_email,
@@ -359,11 +381,11 @@ def handle_block_time_result(
 
 _TRANSPARENT_EVENT_TYPES = {"conference", "holiday"}
 _DEFAULT_ALLDAY_TOPICS = {
-    "ooo":        "Out of Office",
-    "vacation":   "Vacation",
-    "conference": None,   # use parsed topic
-    "holiday":    None,   # use parsed topic
-    "block":      "All Day Block",
+    "ooo": "Out of Office",
+    "vacation": "Vacation",
+    "conference": None,  # use parsed topic
+    "holiday": None,  # use parsed topic
+    "block": "All Day Block",
 }
 
 
@@ -380,9 +402,9 @@ def handle_allday_block(
     Bypasses working-hours and confirmation checks entirely — OOO/vacation events
     are always created regardless of time-of-day rules.
     """
-    my_email  = config["user"]["email"]
+    my_email = config["user"]["email"]
     thread_id = original_thread.id
-    subject   = original_thread.messages[0].subject
+    subject = original_thread.messages[0].subject
 
     # Extract start (and optional inclusive end) date strings
     proposed = parsed.get("proposed_times") or []
@@ -404,7 +426,7 @@ def handle_allday_block(
         date.fromisoformat(end_date_inclusive) + timedelta(days=1)
     ).isoformat()
 
-    event_type   = (parsed.get("event_type") or "block").lower()
+    event_type = (parsed.get("event_type") or "block").lower()
     transparency = "transparent" if event_type in _TRANSPARENT_EVENT_TYPES else "opaque"
 
     default_topic = _DEFAULT_ALLDAY_TOPICS.get(event_type)
@@ -421,7 +443,9 @@ def handle_allday_block(
             transparency=transparency,
         )
     except Exception as e:
-        return _send_calendar_error(gmail, my_email, thread_id, subject, "create an all-day event", e)
+        return _send_calendar_error(
+            gmail, my_email, thread_id, subject, "create an all-day event", e
+        )
 
     # Format a human-readable date description for the confirmation email
     if start_date == end_date_inclusive:
@@ -429,7 +453,9 @@ def handle_allday_block(
     else:
         date_desc = f"{_format_date(start_date)} – {_format_date(end_date_inclusive)}"
 
-    visibility = "informational (free)" if transparency == "transparent" else "blocking (busy)"
+    visibility = (
+        "informational (free)" if transparency == "transparent" else "blocking (busy)"
+    )
     gmail.send_email(
         to=my_email,
         subject=f"EA: blocked — {topic}",
@@ -449,9 +475,10 @@ def _format_date(iso_date: str) -> str:
 # Outbound: handle a suggest_times EA: trigger
 # ---------------------------------------------------------------------------
 
+
 def handle_suggest_times_trigger(
     parsed: dict,
-    original_thread,     # GmailThread
+    original_thread,  # GmailThread
     gmail,
     calendar,
     state: StateStore,
@@ -524,7 +551,7 @@ def handle_suggest_times_trigger(
         gmail.apply_label(thread_id, "ea-notified")
         return "no-availability"
 
-    owner_tz   = schedule.get("timezone", "UTC")
+    owner_tz = schedule.get("timezone", "UTC")
     attendee_tz = parsed.get("timezone")
     body = _format_slot_suggestions(slots, owner_tz=owner_tz, attendee_tz=attendee_tz)
     gmail.send_email(
@@ -534,25 +561,31 @@ def handle_suggest_times_trigger(
         thread_id=thread_id,
         extra_headers={"X-EA-Original-Thread": thread_id},
     )
-    state.set(thread_id, {
-        "type": "pending_external_reply",
-        "created_at": _now(),
-        "expires_at": _expiry(),
-        "original_messages_seen": len(original_thread.messages),  # send_email already appended
-        "topic": parsed.get("topic"),
-        "recipient": recipient,
-        "subject": first_msg.subject,
-        "attendees": all_attendees,
-        "duration_minutes": duration_minutes,
-        "suggested_slots": slots,
-        "attendee_tz": attendee_tz,
-    })
+    state.set(
+        thread_id,
+        {
+            "type": "pending_external_reply",
+            "created_at": _now(),
+            "expires_at": _expiry(),
+            "original_messages_seen": len(
+                original_thread.messages
+            ),  # send_email already appended
+            "topic": parsed.get("topic"),
+            "recipient": recipient,
+            "subject": first_msg.subject,
+            "attendees": all_attendees,
+            "duration_minutes": duration_minutes,
+            "suggested_slots": slots,
+            "attendee_tz": attendee_tz,
+        },
+    )
     return "suggestions-sent"
 
 
 # ---------------------------------------------------------------------------
 # Inbound: handle a reply to the private confirmation thread
 # ---------------------------------------------------------------------------
+
 
 def handle_confirmation_reply(
     reply_text: str,
@@ -562,7 +595,7 @@ def handle_confirmation_reply(
     calendar,
     state: StateStore,
     config: dict,
-    evaluate_fn=None,    # optional: fn(reply_text, entry) -> ScheduleResult
+    evaluate_fn=None,  # optional: fn(reply_text, entry) -> ScheduleResult
 ) -> str:
     """
     Process a reply to an EA confirmation email.
@@ -616,8 +649,14 @@ def handle_confirmation_reply(
     if evaluate_fn:
         result = evaluate_fn(reply_text, entry)
         return _apply_modification(
-            result, original_thread_id, entry, conf_thread_id,
-            gmail, calendar, state, my_email,
+            result,
+            original_thread_id,
+            entry,
+            conf_thread_id,
+            gmail,
+            calendar,
+            state,
+            my_email,
         )
 
     # Fallback: couldn't classify
@@ -680,23 +719,24 @@ def _apply_modification(
         gmail.send_email(
             to=my_email,
             subject="EA: new proposed slot",
-            body=(
-                f"New slot: {slot_desc} (after hours). Reply yes/no."
-            ),
+            body=(f"New slot: {slot_desc} (after hours). Reply yes/no."),
             thread_id=conf_thread_id,
         )
-        state.update(original_thread_id, {
-            "expires_at": _expiry(),
-            "schedule_result": {
-                "outcome": result.outcome,
-                "slot_start": result.slot_start.isoformat(),
-                "slot_end": result.slot_end.isoformat(),
-                "slot_type": result.slot_type,
-                "topic": result.topic,
-                "attendees": result.attendees,
-                "duration_minutes": result.duration_minutes,
+        state.update(
+            original_thread_id,
+            {
+                "expires_at": _expiry(),
+                "schedule_result": {
+                    "outcome": result.outcome,
+                    "slot_start": result.slot_start.isoformat(),
+                    "slot_end": result.slot_end.isoformat(),
+                    "slot_type": result.slot_type,
+                    "topic": result.topic,
+                    "attendees": result.attendees,
+                    "duration_minutes": result.duration_minutes,
+                },
             },
-        })
+        )
         return "needs-confirmation-updated"
 
     return "no-action"
@@ -706,6 +746,7 @@ def _apply_modification(
 # Outbound: handle a reply to an EA time-suggestion thread
 # ---------------------------------------------------------------------------
 
+
 def handle_external_reply(
     reply_text: str,
     original_thread_id: str,
@@ -714,7 +755,7 @@ def handle_external_reply(
     calendar,
     state: StateStore,
     config: dict,
-    find_slots_fn=None,   # optional: fn(constraint, entry) -> list[dict] (suggested_slots)
+    find_slots_fn=None,  # optional: fn(constraint, entry) -> list[dict] (suggested_slots)
 ) -> str:
     """
     Process a reply from the external party on an outbound suggestion thread.
@@ -722,8 +763,8 @@ def handle_external_reply(
     find_slots_fn(constraint_text, entry) -> list[{"start": ISO, "end": ISO, "slot_type": ...}]
     Used for counter-proposals. In tests, inject a lambda returning canned slots.
     """
-    my_email    = config["user"]["email"]
-    owner_tz    = config.get("schedule", {}).get("timezone", "UTC")
+    my_email = config["user"]["email"]
+    owner_tz = config.get("schedule", {}).get("timezone", "UTC")
     attendee_tz = entry.get("attendee_tz")
 
     # Classification is delegated to find_slots_fn (injected by the caller).
@@ -768,10 +809,13 @@ def handle_external_reply(
                 ),
                 thread_id=original_thread_id,
             )
-            state.update(original_thread_id, {
-                "suggested_slots": new_slots,
-                "expires_at": _expiry(),
-            })
+            state.update(
+                original_thread_id,
+                {
+                    "suggested_slots": new_slots,
+                    "expires_at": _expiry(),
+                },
+            )
             return "slot-taken-new-options"
 
         if action == "counter":
@@ -779,13 +823,18 @@ def handle_external_reply(
             gmail.send_email(
                 to=entry["recipient"],
                 subject=entry.get("subject", "Re: meeting"),
-                body=_format_slot_suggestions(new_slots, owner_tz=owner_tz, attendee_tz=attendee_tz),
+                body=_format_slot_suggestions(
+                    new_slots, owner_tz=owner_tz, attendee_tz=attendee_tz
+                ),
                 thread_id=original_thread_id,
             )
-            state.update(original_thread_id, {
-                "suggested_slots": new_slots,
-                "expires_at": _expiry(),
-            })
+            state.update(
+                original_thread_id,
+                {
+                    "suggested_slots": new_slots,
+                    "expires_at": _expiry(),
+                },
+            )
             return "counter-new-options"
 
     return "no-action"
@@ -795,8 +844,9 @@ def handle_external_reply(
 # Cancel: handle a cancel_event EA: trigger
 # ---------------------------------------------------------------------------
 
+
 def handle_cancel_result(
-    match,               # dict (found), list[dict] (ambiguous), or None (not found)
+    match,  # dict (found), list[dict] (ambiguous), or None (not found)
     parsed: dict,
     original_thread,
     gmail,
@@ -820,11 +870,13 @@ def handle_cancel_result(
         return _handle_event_not_found(gmail, my_email, thread_id, topic)
 
     if isinstance(match, list):
-        return _handle_event_ambiguous(gmail, my_email, thread_id, topic, match, "cancel")
+        return _handle_event_ambiguous(
+            gmail, my_email, thread_id, topic, match, "cancel"
+        )
 
     # Single match — delete it
     event_id = match["id"]
-    summary  = match.get("summary", topic)
+    summary = match.get("summary", topic)
     attendees = [a["email"] for a in (match.get("attendees") or [])]
     solo = not attendees or attendees == [my_email]
     try:
@@ -853,8 +905,9 @@ def handle_cancel_result(
 # Reschedule: handle a reschedule EA: trigger
 # ---------------------------------------------------------------------------
 
+
 def handle_reschedule_result(
-    match,               # dict (found), list[dict] (ambiguous), or None (not found)
+    match,  # dict (found), list[dict] (ambiguous), or None (not found)
     parsed: dict,
     original_thread,
     gmail,
@@ -881,7 +934,9 @@ def handle_reschedule_result(
         return _handle_event_not_found(gmail, my_email, thread_id, topic)
 
     if isinstance(match, list):
-        return _handle_event_ambiguous(gmail, my_email, thread_id, topic, match, "reschedule")
+        return _handle_event_ambiguous(
+            gmail, my_email, thread_id, topic, match, "reschedule"
+        )
 
     # --- resolve new time ---
     new_times = parsed.get("new_proposed_times") or []
@@ -920,7 +975,9 @@ def handle_reschedule_result(
         attendees = [my_email]
 
     slot = check_slot(
-        new_start, new_end, attendees,
+        new_start,
+        new_end,
+        attendees,
         schedule.get("working_hours", {}),
         schedule.get("preferred_hours", {}),
         calendar,
@@ -942,11 +999,13 @@ def handle_reschedule_result(
 
     # --- update the event ---
     event_id = match["id"]
-    summary  = match.get("summary", topic)
+    summary = match.get("summary", topic)
     try:
         calendar.update_event(event_id, new_start.isoformat(), new_end.isoformat())
     except Exception as e:
-        return _send_calendar_error(gmail, my_email, thread_id, subject, f"reschedule '{summary}'", e)
+        return _send_calendar_error(
+            gmail, my_email, thread_id, subject, f"reschedule '{summary}'", e
+        )
 
     attendee_tz = parsed.get("timezone")
     slot_desc = _local_slot_desc(new_start, new_end, config, attendee_tz)
@@ -986,20 +1045,20 @@ def _format_slot_suggestions(
     lines = [preamble, ""]
     for slot in slots:
         start = datetime.fromisoformat(slot["start"].replace("Z", "+00:00"))
-        end   = datetime.fromisoformat(slot["end"].replace("Z", "+00:00"))
+        end = datetime.fromisoformat(slot["end"].replace("Z", "+00:00"))
 
         p_start = start.astimezone(primary_tz)
-        p_end   = end.astimezone(primary_tz)
+        p_end = end.astimezone(primary_tz)
         line = _fmt_range(p_start, p_end)
         if show_both:
             o_start = start.astimezone(owner_tz_obj)
-            o_end   = end.astimezone(owner_tz_obj)
+            o_end = end.astimezone(owner_tz_obj)
             line += (
-                " (" +
-                o_start.strftime("%I:%M") +
-                o_end.strftime("–%I:%M %p ") +
-                o_start.strftime("%Z") +
-                " my time)"
+                " ("
+                + o_start.strftime("%I:%M")
+                + o_end.strftime("–%I:%M %p ")
+                + o_start.strftime("%Z")
+                + " my time)"
             )
         lines.append(f"  • {line}")
     lines.append("\nPlease let me know which works for you.")

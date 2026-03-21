@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 from ea.calendar import CalendarClient
 
 SlotType = Literal["preferred", "working", "after_hours"]
-Outcome  = Literal["ambiguous", "open", "busy", "needs_confirmation"]
+Outcome = Literal["ambiguous", "open", "busy", "needs_confirmation"]
 
 _SLOT_PRIORITY = {"preferred": 0, "working": 1, "after_hours": 2}
 
@@ -26,6 +26,7 @@ _SLOT_PRIORITY = {"preferred": 0, "working": 1, "after_hours": 2}
 # ---------------------------------------------------------------------------
 # Result types
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class SlotResult:
@@ -40,13 +41,13 @@ class ScheduleResult:
 
     # Populated for open / needs_confirmation
     slot_start: datetime | None = None
-    slot_end:   datetime | None = None
-    slot_type:  SlotType | None = None
+    slot_end: datetime | None = None
+    slot_type: SlotType | None = None
 
     # From the parsed meeting
-    topic:            str | None       = None
-    attendees:        list[str]        = field(default_factory=list)
-    duration_minutes: int | None       = None
+    topic: str | None = None
+    attendees: list[str] = field(default_factory=list)
+    duration_minutes: int | None = None
 
     # Populated for ambiguous
     ambiguities: list[str] = field(default_factory=list)
@@ -61,6 +62,7 @@ class ScheduleResult:
 # ---------------------------------------------------------------------------
 # Mid-level: evaluate an already-parsed dict
 # ---------------------------------------------------------------------------
+
 
 def evaluate_parsed(
     parsed: dict,
@@ -89,42 +91,48 @@ def evaluate_parsed(
                          never skipped (important for block_time where the
                          parsed attendees list is empty).
     """
-    topic            = parsed.get("topic")
+    topic = parsed.get("topic")
     duration_minutes = parsed.get("duration_minutes")
-    ambiguities      = parsed.get("ambiguities") or []
-    proposed_times   = parsed.get("proposed_times") or []
-    intent           = parsed.get("intent")
+    ambiguities = parsed.get("ambiguities") or []
+    proposed_times = parsed.get("proposed_times") or []
+    intent = parsed.get("intent")
 
     # Build the attendees list, always including the user's own calendar.
     attendees = list(parsed.get("attendees") or [])
     if my_email and my_email not in attendees:
         attendees.insert(0, my_email)
 
-    base = dict(topic=topic, attendees=attendees,
-                duration_minutes=duration_minutes, parsed=parsed)
+    base = dict(
+        topic=topic,
+        attendees=attendees,
+        duration_minutes=duration_minutes,
+        parsed=parsed,
+    )
 
     # --- Ambiguity checks ---
     if intent == "none" or not intent:
-        return ScheduleResult(outcome="ambiguous",
-                              ambiguities=["Could not determine intent from the message"],
-                              **base)
+        return ScheduleResult(
+            outcome="ambiguous",
+            ambiguities=["Could not determine intent from the message"],
+            **base,
+        )
 
     if ambiguities:
         return ScheduleResult(outcome="ambiguous", ambiguities=ambiguities, **base)
 
     if not proposed_times:
-        return ScheduleResult(outcome="ambiguous",
-                              ambiguities=["No specific times were proposed"],
-                              **base)
+        return ScheduleResult(
+            outcome="ambiguous", ambiguities=["No specific times were proposed"], **base
+        )
 
     if not duration_minutes:
-        return ScheduleResult(outcome="ambiguous",
-                              ambiguities=["Duration is not specified"],
-                              **base)
+        return ScheduleResult(
+            outcome="ambiguous", ambiguities=["Duration is not specified"], **base
+        )
 
     # --- Check each proposed datetime against the calendar ---
-    free_slots:        list[tuple[datetime, SlotResult]] = []
-    all_busy_attendees: set[str]                         = set()
+    free_slots: list[tuple[datetime, SlotResult]] = []
+    all_busy_attendees: set[str] = set()
     evaluated_any = False
 
     for time_entry in proposed_times:
@@ -135,23 +143,31 @@ def evaluate_parsed(
                 continue
             evaluated_any = True
             end = start + timedelta(minutes=duration_minutes)
-            result = check_slot(start, end, attendees,
-                                working_hours, preferred_hours,
-                                calendar, timezone)
+            result = check_slot(
+                start,
+                end,
+                attendees,
+                working_hours,
+                preferred_hours,
+                calendar,
+                timezone,
+            )
             if result.free:
                 free_slots.append((start, result))
             else:
                 all_busy_attendees.update(result.busy_attendees)
 
     if not evaluated_any:
-        return ScheduleResult(outcome="ambiguous",
-                              ambiguities=["Proposed times could not be resolved to specific datetimes"],
-                              **base)
+        return ScheduleResult(
+            outcome="ambiguous",
+            ambiguities=["Proposed times could not be resolved to specific datetimes"],
+            **base,
+        )
 
     if not free_slots:
-        return ScheduleResult(outcome="busy",
-                              busy_attendees=sorted(all_busy_attendees),
-                              **base)
+        return ScheduleResult(
+            outcome="busy", busy_attendees=sorted(all_busy_attendees), **base
+        )
 
     # Pick the best free slot: preferred > working > after_hours,
     # preserving proposal order within the same tier.
@@ -160,7 +176,11 @@ def evaluate_parsed(
     best_end = best_start + timedelta(minutes=duration_minutes)
 
     times_explicit = parsed.get("times_explicitly_specified", False)
-    outcome = "needs_confirmation" if (best_slot.slot_type == "after_hours" and not times_explicit) else "open"
+    outcome = (
+        "needs_confirmation"
+        if (best_slot.slot_type == "after_hours" and not times_explicit)
+        else "open"
+    )
 
     return ScheduleResult(
         outcome=outcome,
@@ -174,6 +194,7 @@ def evaluate_parsed(
 # ---------------------------------------------------------------------------
 # Mid-level: find available slots over a future window
 # ---------------------------------------------------------------------------
+
 
 def find_slots(
     attendees: list[str],
@@ -234,7 +255,7 @@ def find_slots(
             wh = _FALLBACK_HOURS  # user explicitly requested this day
 
         wh_start = time.fromisoformat(wh["start"])
-        wh_end   = time.fromisoformat(wh["end"])
+        wh_end = time.fromisoformat(wh["end"])
 
         # Walk in 30-minute increments across the working day
         cursor = datetime.combine(current_day, wh_start, tzinfo=tz)
@@ -242,25 +263,29 @@ def find_slots(
 
         while cursor + timedelta(minutes=duration_minutes) <= day_end:
             slot_start = cursor
-            slot_end   = cursor + timedelta(minutes=duration_minutes)
+            slot_end = cursor + timedelta(minutes=duration_minutes)
 
             # Only consider future slots
             if slot_start <= now:
                 cursor += timedelta(minutes=30)
                 continue
 
-            slot_type = _classify_slot(slot_start, slot_end, preferred_hours, working_hours)
+            slot_type = _classify_slot(
+                slot_start, slot_end, preferred_hours, working_hours
+            )
             busy = _find_busy_attendees(
                 slot_start.astimezone(ZoneInfo("UTC")),
                 slot_end.astimezone(ZoneInfo("UTC")),
                 freebusy,
             )
             if not busy:
-                candidates.append({
-                    "start": slot_start.isoformat(),
-                    "end":   slot_end.isoformat(),
-                    "slot_type": slot_type,
-                })
+                candidates.append(
+                    {
+                        "start": slot_start.isoformat(),
+                        "end": slot_end.isoformat(),
+                        "slot_type": slot_type,
+                    }
+                )
 
             cursor += timedelta(minutes=30)
 
@@ -276,8 +301,23 @@ def find_slots(
 
 # Words too generic to use for event matching
 _STOP_WORDS = {
-    "meeting", "call", "with", "my", "the", "a", "an", "and", "or",
-    "at", "on", "in", "for", "to", "of", "re", "about",
+    "meeting",
+    "call",
+    "with",
+    "my",
+    "the",
+    "a",
+    "an",
+    "and",
+    "or",
+    "at",
+    "on",
+    "in",
+    "for",
+    "to",
+    "of",
+    "re",
+    "about",
 }
 
 
@@ -314,8 +354,12 @@ def find_matching_event(
             ref = now
         # Search the whole local day that contains the reference datetime
         local_date = ref.astimezone(tz).date()
-        t_min = datetime.combine(local_date, time(0, 0), tzinfo=tz).astimezone(timezone.utc)
-        t_max = datetime.combine(local_date + timedelta(days=1), time(0, 0), tzinfo=tz).astimezone(timezone.utc)
+        t_min = datetime.combine(local_date, time(0, 0), tzinfo=tz).astimezone(
+            timezone.utc
+        )
+        t_max = datetime.combine(
+            local_date + timedelta(days=1), time(0, 0), tzinfo=tz
+        ).astimezone(timezone.utc)
     else:
         # No time hint — search the next 14 days
         t_min = now
@@ -329,11 +373,15 @@ def find_matching_event(
         return None
 
     # Score each event by title similarity to topic
-    topic_words = {w for w in topic.lower().split() if w not in _STOP_WORDS and len(w) > 1}
+    topic_words = {
+        w for w in topic.lower().split() if w not in _STOP_WORDS and len(w) > 1
+    }
     scored = []
     for ev in events:
         summary = (ev.get("summary") or "").lower()
-        summary_words = {w for w in summary.split() if w not in _STOP_WORDS and len(w) > 1}
+        summary_words = {
+            w for w in summary.split() if w not in _STOP_WORDS and len(w) > 1
+        }
 
         if topic.lower() in summary or summary in topic.lower():
             score = 2
@@ -356,6 +404,7 @@ def find_matching_event(
 # ---------------------------------------------------------------------------
 # Low-level: single slot check
 # ---------------------------------------------------------------------------
+
 
 def check_slot(
     start: datetime,
@@ -384,14 +433,14 @@ def check_slot(
     """
     tz = ZoneInfo(timezone)
     local_start = start.astimezone(tz)
-    local_end   = end.astimezone(tz)
+    local_end = end.astimezone(tz)
 
     slot_type = _classify_slot(local_start, local_end, preferred_hours, working_hours)
 
     time_min = start.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%dT%H:%M:%SZ")
     time_max = end.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    freebusy       = calendar.get_freebusy(time_min, time_max, attendees)
+    freebusy = calendar.get_freebusy(time_min, time_max, attendees)
     busy_attendees = _find_busy_attendees(start, end, freebusy)
 
     return SlotResult(
@@ -405,6 +454,7 @@ def check_slot(
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _classify_slot(
     local_start: datetime,
     local_end: datetime,
@@ -414,9 +464,9 @@ def _classify_slot(
     if local_start.date() != local_end.date():
         return "after_hours"
 
-    day          = local_start.strftime("%A").lower()
+    day = local_start.strftime("%A").lower()
     slot_start_t = local_start.time().replace(second=0, microsecond=0)
-    slot_end_t   = local_end.time().replace(second=0, microsecond=0)
+    slot_end_t = local_end.time().replace(second=0, microsecond=0)
 
     if _within_hours(slot_start_t, slot_end_t, preferred_hours.get(day)):
         return "preferred"
@@ -429,7 +479,7 @@ def _within_hours(slot_start: time, slot_end: time, hours: dict | None) -> bool:
     if not hours:
         return False
     h_start = time.fromisoformat(hours["start"])
-    h_end   = time.fromisoformat(hours["end"])
+    h_end = time.fromisoformat(hours["end"])
     return slot_start >= h_start and slot_end <= h_end
 
 
@@ -438,7 +488,7 @@ def _find_busy_attendees(start: datetime, end: datetime, freebusy: dict) -> list
     for email, data in freebusy.get("calendars", {}).items():
         for block in data.get("busy", []):
             block_start = datetime.fromisoformat(block["start"].replace("Z", "+00:00"))
-            block_end   = datetime.fromisoformat(block["end"].replace("Z", "+00:00"))
+            block_end = datetime.fromisoformat(block["end"].replace("Z", "+00:00"))
             if block_start < end and block_end > start:
                 busy.append(email)
                 break
