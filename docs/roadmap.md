@@ -384,27 +384,6 @@ Commands: `systemctl enable ea` / `systemctl start ea` / `systemctl status ea` /
 Note: `After=network-online.target` ensures the service waits for network before
 starting (important for OP-1).
 
-### OP-5. Log rotation
-`ea.log` grows without bound. Add a `logrotate` config (Linux) and equivalent
-for macOS.
-
-File: `docs/logrotate/ea` (copy to `/etc/logrotate.d/ea`):
-```
-/home/ea/ea/ea.log {
-    daily
-    rotate 14
-    compress
-    missingok
-    notifempty
-    postrotate
-        systemctl kill -s HUP ea 2>/dev/null || true
-    endscript
-}
-```
-
-For macOS with launchd: use `newsyslog` or switch to `RotatingFileHandler`
-in `ea/log.py` (max 10 MB, 5 backups).
-
 ### OP-6. OAuth token expiry and revocation handling
 Google OAuth tokens auto-refresh via `google-auth` as long as the refresh
 token is valid. If revoked, this would crash with `google.auth.exceptions.RefreshError`.
@@ -636,16 +615,29 @@ handling during fall-back.
 If adopted, main integration points: `ea/scheduler.py`, `ea/parser/date_normalizer.py`,
 `ea/digest.py`.
 
----
 
-## Implementation Order (suggested)
+### OP-5. Log rotation
 
+This is only needed if it's running as a long lived server.  The current
+approach is to use a cron-like system.
+
+`ea.log` grows without bound. Add a `logrotate` config (Linux) and equivalent
+for macOS.
+
+File: `docs/logrotate/ea` (copy to `/etc/logrotate.d/ea`):
 ```
-#14 calendar event descriptions  — small, immediate value
-#3  prep buffer                  — low complexity, high daily value
-#11 waitlist / retry after busy  — closes an obvious gap
-#1  recurring meetings           — moderate complexity
-#10 group scheduling             — extends existing freebusy logic
-#17 smart expiry                 — reduces stale state noise
-#7  Calendly detection           — high-value external integration
+/home/ea/ea/ea.log {
+    daily
+    rotate 14
+    compress
+    missingok
+    notifempty
+    postrotate
+        systemctl kill -s HUP ea 2>/dev/null || true
+    endscript
+}
 ```
+
+For macOS with launchd: use `newsyslog` or switch to `RotatingFileHandler`
+in `ea/log.py` (max 10 MB, 5 backups).
+
