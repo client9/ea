@@ -214,3 +214,5 @@ client_secret*
 token.json
 config.toml
 .state.lock
+state.json
+ea-launchd.err
