@@ -23,6 +23,7 @@ from ea.responder import (
     handle_suggest_times_trigger,
     handle_cancel_result,
     handle_reschedule_result,
+    handle_ignore_result,
     handle_confirmation_reply,
     handle_external_reply,
 )
@@ -137,12 +138,14 @@ def run_poll(
     # ------------------------------------------------------------------
     threads = gmail.list_threads(exclude_label_ids=EA_TERMINAL_LABELS)
     for thread in threads:
-        # Skip threads already in state (already being handled)
-        if state.get(thread.id):
-            continue
-
         ea_cmd = _find_ea_trigger_in_messages(thread.messages, my_email)
         if ea_cmd is None:
+            continue
+
+        # Skip threads already in state — but allow dismiss commands through
+        # so the owner can dismiss a pending_external_reply on the original thread
+        # or a pending_confirmation by replying to the confirmation thread.
+        if state.get(thread.id) and not _DISMISS_RE.match(ea_cmd.strip()):
             continue
 
         subject = thread.messages[0].subject if thread.messages else ""
@@ -227,6 +230,8 @@ def run_poll(
                     action = handle_reschedule_result(
                         match, parsed, thread, gmail, calendar, state, config
                     )
+            elif intent == "ignore":
+                action = handle_ignore_result(parsed, thread, gmail, state, config)
             else:
                 if not dry_run:
                     import json as _json
@@ -430,6 +435,7 @@ def run_poll(
 
 _REPLY_PREFIX_RE = re.compile(r"^(?:Re|Fwd?|AW|WG):\s*", re.IGNORECASE)
 _QUOTED_LINE_RE = re.compile(r"^>.*$", re.MULTILINE)
+_DISMISS_RE = re.compile(r"^(ignore|dismiss|never\s+mind|forget\s+it)$", re.IGNORECASE)
 
 
 def _find_ea_trigger_in_messages(messages, my_email: str) -> str | None:

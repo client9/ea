@@ -1063,3 +1063,58 @@ def _format_slot_suggestions(
         lines.append(f"  • {line}")
     lines.append("\nPlease let me know which works for you.")
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Ignore / dismiss: drop a pending scheduling request
+# ---------------------------------------------------------------------------
+
+
+def handle_ignore_result(
+    parsed: dict, original_thread, gmail, state: StateStore, config: dict
+) -> str:
+    """
+    Drop a pending scheduling request with no further action.
+
+    Handles three cases:
+    - Thread is directly in state (pending_external_reply on original thread)
+    - Thread is a confirmation_thread_id for another entry (pending_confirmation)
+    - Thread has no state entry (permanent suppression of a new thread)
+
+    Sends a brief confirmation email to the owner, deletes state, and applies
+    ea-cancelled so Pass 1 never picks up the thread again.
+    """
+    my_email = config["user"]["email"]
+    thread_id = original_thread.id
+    topic = parsed.get("topic") or "(no topic)"
+
+    # Find the state entry — may be keyed by this thread directly
+    # (pending_external_reply) or by a different thread whose confirmation_thread_id
+    # points here (pending_confirmation where owner replied to the conf email).
+    entry = state.get(thread_id)
+    original_thread_id = thread_id
+
+    if entry is None:
+        for tid, e in state.all().items():
+            if e.get("confirmation_thread_id") == thread_id:
+                entry = e
+                original_thread_id = tid
+                sr = e.get("schedule_result") or {}
+                topic = e.get("topic") or sr.get("topic") or topic
+                break
+
+    note = ""
+    if entry and entry.get("type") == "pending_external_reply":
+        attendees = entry.get("attendees") or []
+        if attendees:
+            note = f"\n\nNote: no cancellation was sent to {', '.join(attendees)}."
+
+    gmail.send_email(
+        to=my_email,
+        subject=f"EA: dismissed — {topic}",
+        body=f"This scheduling request has been dismissed. No further action will be taken.{note}",
+        thread_id=thread_id,
+    )
+    state.delete(original_thread_id)
+    gmail.apply_label(original_thread_id, "ea-cancelled")
+    return "dismissed"

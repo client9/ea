@@ -24,6 +24,7 @@ python ea.py poll --dry-run   # show actions without sending/creating anything
 python ea.py poll --quiet     # suppress all stdout (for launchd/cron — logs to ea.log only)
 python ea.py run              # loop continuously (interval from config.toml)
 python ea.py status           # show pending state entries (topic, attendees, expiry)
+python ea.py dismiss <id>     # dismiss a pending entry by thread ID (clears state, labels thread)
 python ea.py reset            # clear state.json to start fresh
 
 # Google auth
@@ -99,7 +100,7 @@ default     = 30
 
 Each `run_poll` cycle:
 1. **Expiry check** — threads past `expires_at` get `ea-expired` label, owner notified, removed from state.
-2. **Pass 1 — New triggers** — scans unlabeled threads for `EA:` commands from `my_email`. Dispatches by intent: `meeting_request` → `handle_inbound_result`, `suggest_times` → `handle_suggest_times_trigger`, `block_time` → `handle_block_time_result`, `cancel_event` → `handle_cancel_result`, `reschedule` → `handle_reschedule_result`. Unknown intents send a parse-error email and apply `ea-notified`.
+2. **Pass 1 — New triggers** — scans unlabeled threads for `EA:` commands from `my_email`. Dispatches by intent: `meeting_request` → `handle_inbound_result`, `suggest_times` → `handle_suggest_times_trigger`, `block_time` → `handle_block_time_result`, `cancel_event` → `handle_cancel_result`, `reschedule` → `handle_reschedule_result`, `ignore` → `handle_ignore_result`. Unknown intents send a parse-error email and apply `ea-notified`. Note: dismiss commands (`_DISMISS_RE`) bypass the "skip if in state" check so the owner can dismiss `pending_external_reply` threads or `pending_confirmation` via the confirmation thread.
 3. **Pass 2 — Pending confirmations** — threads in `pending_confirmation` state waiting for my yes/no reply.
 4. **Pass 3 — Pending external replies** — threads in `pending_external_reply` state waiting for the other party's slot confirmation.
 
@@ -113,6 +114,7 @@ Each `run_poll` cycle:
 - `block_time` → create solo calendar event (auto-accepted, no invite), apply `ea-scheduled`
 - `cancel_event` → find matching event via `find_matching_event`; delete it and notify me, or notify me if not found / ambiguous
 - `reschedule` → find matching event; check new slot free; update event and notify me; handles not-found, ambiguous, busy, missing-new-time cases
+- `ignore` / `dismiss` / `never mind` / `forget it` → delete state entry, apply `ea-cancelled`, email me "EA: dismissed — {topic}". If `pending_external_reply`, notes that no cancellation was sent to the external party. Also available as `python ea.py dismiss <thread_id>`.
 
 ## Running Tests
 

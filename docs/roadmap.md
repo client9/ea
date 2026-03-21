@@ -627,7 +627,7 @@ THREAD           TYPE                    TOPIC              ATTENDEES           
 Implemented in `ea.py` (`_run_status()`). Reads from `StateStore.all()`.
 Expiry shown as relative time (e.g. `12h 2m`, `6d 3h`, `EXPIRED`).
 
-### 19. Ignore / dismiss a request
+### 19. Ignore / dismiss a request ✅ DONE
 An escape hatch for dropping any pending scheduling request without taking
 action. Useful when a reply asks for more information and the owner just wants
 to walk away from it, or when EA misidentified a thread and created state that
@@ -672,6 +672,27 @@ the owner notes this: "Note: no cancellation was sent to sarah@example.com."
 **CLI alternative:** `python ea.py dismiss <thread_id>` — same effect without
 needing to send an email, useful when the thread has already been archived or
 when debugging via `ea status`.
+
+**Implementation notes:**
+
+- **Pass 1 bypass:** `_find_ea_trigger_in_messages` is called *before* the
+  `state.get(thread.id)` skip check. If the ea_cmd matches `_DISMISS_RE`
+  (`ignore|dismiss|never mind|forget it`), the thread is allowed through even
+  when in state — enabling dismissal of `pending_external_reply` on the
+  original thread.
+
+- **`pending_confirmation` dismissal:** the owner writes "EA: dismiss" on the
+  confirmation thread (not in state). `handle_ignore_result` scans all state
+  entries to find the one whose `confirmation_thread_id` matches, then deletes
+  that original entry and applies `ea-cancelled` to the original thread.
+
+- **`"ignore"` intent** added to the parser schema (6th type). `_DISMISS_RE`
+  in `poll.py` provides fast pre-parse detection without an API call.
+
+- **CLI `ea dismiss <thread_id>`**: deletes from state, optionally applies
+  Gmail label (tries to load creds; warns and continues if unavailable). If
+  `pending_external_reply`, prints a note that no cancellation email was sent
+  to the external party.
 
 ---
 

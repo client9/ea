@@ -156,7 +156,7 @@ def _run_status():
     now = datetime.now(tz=timezone.utc)
 
     # Column widths
-    COL = {"thread": 16, "type": 24, "topic": 22, "attendees": 28, "expires": 22}
+    COL = {"thread": 17, "type": 24, "topic": 22, "attendees": 28, "expires": 22}
     header = (
         f"{'THREAD':<{COL['thread']}}"
         f"{'TYPE':<{COL['type']}}"
@@ -211,6 +211,53 @@ def _run_status():
     print(f"\n{len(entries)} pending entry/entries.")
 
 
+def _run_dismiss(thread_id: str, credentials_file=None, token_file=None):
+    from ea.state import StateStore
+    from ea.config import load_config
+    from ea.runner import _acquire_lock, _release_lock, LOCK_FILE
+
+    config = load_config()
+
+    lock_f = _acquire_lock(LOCK_FILE)
+    if lock_f is None:
+        print("A poll cycle is currently running. Wait a moment and try again.")
+        return
+
+    try:
+        state = StateStore()
+        entry = state.get(thread_id)
+
+        if entry is None:
+            print(f"No pending entry found for thread {thread_id}.")
+            print("(Use 'ea status' to see pending entries.)")
+            return
+
+        sr = entry.get("schedule_result") or {}
+        topic = entry.get("topic") or sr.get("topic") or "(no topic)"
+        entry_type = entry.get("type", "unknown")
+        attendees = entry.get("attendees") or sr.get("attendees") or []
+
+        state.delete(thread_id)
+    finally:
+        _release_lock(lock_f)
+
+    print(f"Dismissed: {topic} ({entry_type})")
+
+    try:
+        from ea.auth import load_creds
+        from ea.gmail import LiveGmailClient
+
+        creds = load_creds(credentials_file=credentials_file, token_file=token_file)
+        gmail = LiveGmailClient(creds)
+        gmail.apply_label(thread_id, "ea-cancelled")
+        print(f"Applied 'ea-cancelled' label to thread {thread_id}.")
+    except Exception as e:
+        print(f"Note: could not apply Gmail label ({e}). State was cleared.")
+
+    if attendees and entry_type == "pending_external_reply":
+        print(f"Note: no cancellation was sent to {', '.join(attendees)}.")
+
+
 def main():
     parser = argparse.ArgumentParser(description="EA Assistant — scheduling via email")
     subparsers = parser.add_subparsers(dest="command")
@@ -255,6 +302,15 @@ def main():
 
     # --- status subcommand ---
     subparsers.add_parser("status", help="Show all pending state entries")
+
+    # --- dismiss subcommand ---
+    dismiss_parser = subparsers.add_parser(
+        "dismiss", help="Dismiss a pending state entry by thread ID"
+    )
+    dismiss_parser.add_argument(
+        "thread_id", help="Thread ID to dismiss (from 'ea status')"
+    )
+    _add_auth_args(dismiss_parser)
 
     # --- reset subcommand ---
     subparsers.add_parser("reset", help="Clear state.json to start fresh")
@@ -318,6 +374,13 @@ def main():
 
     elif args.command == "status":
         _run_status()
+
+    elif args.command == "dismiss":
+        _run_dismiss(
+            args.thread_id,
+            credentials_file=getattr(args, "credentials", None),
+            token_file=getattr(args, "token", None),
+        )
 
     elif args.command == "reset":
         from ea.state import DEFAULT_STATE_FILE

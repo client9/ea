@@ -9,3 +9,8 @@ lint:
 	ruff check --output-format=concise
 format:
 	ruff format
+
+
+status:
+	 python3 ea.py status
+

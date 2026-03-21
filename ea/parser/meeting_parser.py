@@ -20,11 +20,12 @@ SYSTEM_PROMPT = """You are an assistant that parses five types of input:
 3. Self-directed calendar blocks — a standalone message from the user to themselves with an "EA:" command such as "EA: block Thursday 12-1pm for lunch". Also handles all-day and multi-day events: "EA: mark Monday as out of office", "EA: vacation next week", "EA: add PyCon April 15-17 (informational, still free)".
 4. Cancel event — the user wants to cancel an existing calendar event: "EA: cancel my 2pm meeting with Sarah on Friday" or "EA: cancel Thursday standup".
 5. Reschedule event — the user wants to move an existing event to a new time: "EA: move my Thursday standup to Friday at 4pm" or "EA: reschedule my 2pm call with Bob to next Tuesday at 3pm".
+6. Dismiss / ignore — the user wants to drop a pending scheduling request with no further action: "EA: ignore", "EA: dismiss", "EA: never mind", "EA: forget it".
 
 Return a JSON object with the following fields:
 
 {
-  "intent": "meeting_request" | "suggest_times" | "block_time" | "cancel_event" | "reschedule" | "none",
+  "intent": "meeting_request" | "suggest_times" | "block_time" | "cancel_event" | "reschedule" | "ignore" | "none",
   "topic": "meeting purpose, block label, or title of the existing event to find",
   "attendees": ["email addresses or names of the OTHER people — omit the user themselves; empty for block_time"],
   "all_day": true or false,
@@ -58,6 +59,7 @@ Rules:
 - For all-day events (all_day=true): duration_minutes is null. proposed_times[0].normalized contains the start date phrase and, if a range, the end date phrase as the second element. event_type captures the nature: "ooo" for out-of-office, "vacation" for vacation/holiday leave, "conference" for external conference, "holiday" for public holiday, "block" for generic blocking.
 - For informational all-day events mentioned as "still free", "informational", "transparent", or "no conflicts" — set event_type to "conference" or "holiday" as appropriate. These appear free in scheduling.
 - times_explicitly_specified: Set true when the owner's EA: command itself contains a specific time or date (e.g. "EA: book at 3pm", "EA: schedule Thursday at 2pm", "EA: book the 3pm slot"). Set false when the command is generic with no embedded time (e.g. "EA: please schedule", "EA: book it", "EA: schedule this meeting"). If the time only appears in the other party's message but not in the EA: command, set false. Always include this field.
+- For ignore intent: proposed_times is empty, attendees is empty, all other optional fields are null. topic may contain the subject or topic being dismissed if identifiable.
 - meeting_type: classify the meeting type based on context clues. Use "coffee_chat" for social coffee/drinks, "interview" for hiring/technical screens, "1on1" for one-on-one syncs, "board" for board meetings, "standup" for standups/dailies, "workshop" for workshops/training, "lunch" for lunch/dinner. Return null if no category fits.
 - Return ONLY valid JSON. No explanation, no markdown, no code fences.
 - Set intent to "none" if the text is none of the above types.
