@@ -1449,3 +1449,32 @@ phrases correctly regardless of the email's language.
 - The injection point is `DateparserNormalizer.__init__` — it already accepts a
   `languages` list, so no interface changes are needed beyond the detection call
   at the `run_poll` / `runner.py` level.
+
+---
+
+## Consider `whenever` for datetime/timezone arithmetic (if pain arises)
+
+**Context:** The codebase does a lot of timezone-aware datetime math — DST
+boundary checks, UTC conversions, freebusy window construction, working-hours
+evaluation. Python's built-in `datetime` + `zoneinfo` handles this correctly
+today, but the API is verbose and has well-known footguns (naive vs aware
+mixing, ambiguous wall-clock times during DST fall-back, etc.).
+
+[`whenever`](https://github.com/ariebovenberg/whenever) is a modern Python
+datetime library designed to eliminate these footguns at the type level —
+distinct types for UTC instants, local times, and zoned datetimes make
+incorrect combinations a static/runtime error rather than a silent bug.
+
+**Do not adopt preemptively.** Only revisit if the project encounters real
+problems such as:
+- A DST-related scheduling bug that `datetime`/`zoneinfo` makes hard to reason about
+- Ambiguous wall-clock time handling during fall-back (e.g. 1:30am occurring twice)
+- Repeated boilerplate around naive/aware conversions becoming error-prone
+
+**If adopted**, the main integration points would be:
+- `ea/scheduler.py` — working-hours and preferred-hours slot evaluation
+- `ea/parser/date_normalizer.py` — UTC conversion after dateparser returns a result
+- `ea/digest.py` — `get_today_window()` UTC midnight-to-midnight construction
+
+`whenever` can interop with stdlib `datetime` via `.py_datetime()` /
+`SystemDateTime.from_py_datetime()`, so migration could be incremental.
