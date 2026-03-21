@@ -60,6 +60,17 @@ monday = { start = "09:00", end = "17:00" }
 
 [schedule.preferred_hours]
 monday = { start = "10:00", end = "16:00" }
+
+# Optional: duration defaults when parser can't determine meeting length.
+# meeting_type key first, then "default" as global fallback.
+# Without this section, missing duration still triggers the ambiguous flow.
+[schedule.duration_defaults]
+coffee_chat = 30
+interview   = 60
+1on1        = 30
+board       = 90
+standup     = 15
+default     = 30
 ```
 
 ## Architecture
@@ -122,6 +133,7 @@ Tests use `FakeGmailClient` (in-memory), `CalendarClient(fixture_data=...)`, and
 - `proposed_times`: list of `{"text": "...", "datetimes": ["ISO 8601 UTC", ...]}`. Each `datetimes` entry is one distinct start time (e.g. "at 3 or 5pm" → two entries).
 - `new_proposed_times`: same shape as `proposed_times`; populated for `reschedule` intent only (the new desired time). Always present, empty list if not applicable.
 - `duration_minutes`, `location`, `timezone`, `urgency`
+- `meeting_type`: `"coffee_chat"` | `"interview"` | `"1on1"` | `"board"` | `"standup"` | `"workshop"` | `"lunch"` | `null` — inferred meeting category. Used by `_resolve_duration` in `poll.py` to look up a default duration from `[schedule.duration_defaults]` when `duration_minutes` is null.
 - `all_day`: `true` for all-day / multi-day events; `false` (default) for timed events
 - `event_type`: `"ooo"` | `"vacation"` | `"conference"` | `"holiday"` | `"block"` | `null` — all-day event subtype; null for timed events. Opaque types (block scheduling): `ooo`, `vacation`, `block`. Transparent types (informational, still free): `conference`, `holiday`.
 - `proposed_times[*].datetimes`: UTC ISO 8601 strings for timed events; `YYYY-MM-DD` local date strings for all-day events. For all-day ranges, two date entries: `[start_date, end_date_inclusive]`.

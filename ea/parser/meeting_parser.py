@@ -46,7 +46,8 @@ Return a JSON object with the following fields:
   "timezone": null or "timezone if mentioned",
   "ambiguities": ["unclear or missing details — only for meeting_request; omit for other intents"],
   "times_explicitly_specified": true or false,
-  "urgency": "low/medium/high based on tone and timing"
+  "urgency": "low/medium/high based on tone and timing",
+  "meeting_type": "coffee_chat" | "interview" | "1on1" | "board" | "standup" | "workshop" | "lunch" | null
 }
 
 Rules:
@@ -57,6 +58,7 @@ Rules:
 - For all-day events (all_day=true): duration_minutes is null. proposed_times[0].normalized contains the start date phrase and, if a range, the end date phrase as the second element. event_type captures the nature: "ooo" for out-of-office, "vacation" for vacation/holiday leave, "conference" for external conference, "holiday" for public holiday, "block" for generic blocking.
 - For informational all-day events mentioned as "still free", "informational", "transparent", or "no conflicts" — set event_type to "conference" or "holiday" as appropriate. These appear free in scheduling.
 - times_explicitly_specified: Set true when the owner's EA: command itself contains a specific time or date (e.g. "EA: book at 3pm", "EA: schedule Thursday at 2pm", "EA: book the 3pm slot"). Set false when the command is generic with no embedded time (e.g. "EA: please schedule", "EA: book it", "EA: schedule this meeting"). If the time only appears in the other party's message but not in the EA: command, set false. Always include this field.
+- meeting_type: classify the meeting type based on context clues. Use "coffee_chat" for social coffee/drinks, "interview" for hiring/technical screens, "1on1" for one-on-one syncs, "board" for board meetings, "standup" for standups/dailies, "workshop" for workshops/training, "lunch" for lunch/dinner. Return null if no category fits.
 - Return ONLY valid JSON. No explanation, no markdown, no code fences.
 - Set intent to "none" if the text is none of the above types.
 - In normalized: keep expressions in plain English (e.g. "Next Friday at 1pm"). Do NOT convert to dates or UTC. A separate system handles that conversion.

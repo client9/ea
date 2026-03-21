@@ -32,6 +32,25 @@ from ea.state import StateStore
 EA_TERMINAL_LABELS = {"ea-scheduled", "ea-notified", "ea-cancelled", "ea-expired"}
 
 
+def _resolve_duration(parsed: dict, config: dict) -> dict:
+    """Fill in duration_minutes from config defaults when the parser returned null.
+
+    Checks [schedule.duration_defaults] for a key matching parsed["meeting_type"],
+    then falls back to the "default" key. If neither exists, returns parsed unchanged
+    (the scheduler will handle the missing duration via the ambiguous outcome).
+    """
+    if parsed.get("duration_minutes"):
+        return parsed
+    defaults = config.get("schedule", {}).get("duration_defaults", {})
+    if not defaults:
+        return parsed
+    meeting_type = parsed.get("meeting_type")
+    duration = (meeting_type and defaults.get(meeting_type)) or defaults.get("default")
+    if duration:
+        return {**parsed, "duration_minutes": duration}
+    return parsed
+
+
 def _item(thread_id, action, **extra) -> dict:
     return {
         "thread_id": thread_id,
@@ -140,7 +159,7 @@ def run_poll(
                 action = f"dry-run-{intent or 'none'}"
             elif intent == "suggest_times":
                 action = handle_suggest_times_trigger(
-                    parsed,
+                    _resolve_duration(parsed, config),
                     thread,
                     gmail,
                     calendar,
@@ -157,7 +176,7 @@ def run_poll(
                     )
                 else:
                     result = evaluate_parsed(
-                        parsed=parsed,
+                        parsed=_resolve_duration(parsed, config),
                         working_hours=working_hours,
                         preferred_hours=preferred_hours,
                         timezone=timezone_name,
@@ -169,7 +188,7 @@ def run_poll(
                     )
             elif intent == "meeting_request":
                 result = evaluate_parsed(
-                    parsed=parsed,
+                    parsed=_resolve_duration(parsed, config),
                     working_hours=working_hours,
                     preferred_hours=preferred_hours,
                     timezone=timezone_name,

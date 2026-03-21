@@ -233,7 +233,7 @@ owner's, both times now appear in every scheduling email.
 - `attendee_tz` is saved to state so counter-proposal resends also use it.
 - When timezones match (or attendee tz is unknown), single-tz format is used.
 
-### 9. Meeting duration defaults by topic type
+### 9. Meeting duration defaults by topic type ✅ DONE
 When the parser can't determine duration, fall back to a config-driven default
 based on detected meeting type rather than failing with an ambiguity.
 
@@ -243,11 +243,26 @@ coffee_chat  = 30
 interview    = 60
 1on1         = 30
 board        = 90
-default      = 30
+standup      = 15
+default      = 30   # global fallback when meeting_type is unknown or not in table
 ```
 
-Parser returns a `meeting_type` hint; responder looks up the default before
-treating missing duration as an ambiguity.
+The parser returns a `meeting_type` field (inferred from email context by Claude
+during the existing parse call — no extra API call). `poll.py`'s `_resolve_duration()`
+helper fills in `duration_minutes` before `evaluate_parsed()` is called, so the
+scheduler receives a fully-resolved dict. The `"ambiguous"` outcome for missing
+duration is only reached when no defaults are configured at all.
+
+**`meeting_type` values:** `"coffee_chat"` | `"interview"` | `"1on1"` | `"board"` |
+`"standup"` | `"workshop"` | `"lunch"` | `null`
+
+**Implementation:**
+- `ea/parser/meeting_parser.py` — `meeting_type` field added to system prompt schema
+- `ea/poll.py` — `_resolve_duration(parsed, config)` helper; called before
+  `evaluate_parsed()` for `meeting_request` and `block_time`, and before
+  `handle_suggest_times_trigger()` for `suggest_times`
+- Without `[schedule.duration_defaults]`, behavior is unchanged (existing ambiguous
+  flow preserved)
 
 ### 10. Group scheduling (multiple attendees)
 `get_freebusy` already accepts multiple attendees, but the parser and responder
