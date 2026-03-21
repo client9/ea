@@ -5,8 +5,7 @@ Tests for FooterGmailClient — the decorator that appends a configured footer
 to every outgoing email body in a single place, rather than at every call site.
 """
 
-import pytest
-from ea.gmail import FooterGmailClient, GmailMessage, GmailThread
+from ea.gmail import FooterGmailClient, GmailMessage
 from tests.fake_gmail import FakeGmailClient
 
 MY_EMAIL = "me@example.com"

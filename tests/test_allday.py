@@ -301,7 +301,7 @@ class TestPollDispatch:
             "urgency": "low",
         }
 
-        summary = run_poll(
+        run_poll(
             gmail=gmail,
             calendar=calendar,
             state=state,

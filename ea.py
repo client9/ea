@@ -11,7 +11,6 @@ Usage:
 
 import sys
 import os
-import json
 import argparse
 from pathlib import Path
 
@@ -68,7 +67,7 @@ def print_result(text: str, result: dict, source_label: str = ""):
 
     attendees = result.get("attendees", [])
     if attendees:
-        print(f"\n  👥 ATTENDEES:")
+        print("\n  👥 ATTENDEES:")
         for a in attendees:
             print(f"     • {a}")
 
@@ -76,7 +75,7 @@ def print_result(text: str, result: dict, source_label: str = ""):
 
     ambiguities = result.get("ambiguities", [])
     if ambiguities:
-        print(f"\n  ⚠️  AMBIGUITIES:")
+        print("\n  ⚠️  AMBIGUITIES:")
         for a in ambiguities:
             print(f"     • {a}")
 

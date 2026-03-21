@@ -11,11 +11,8 @@ Covers:
   - intent="none" from parser → "could not parse" email sent to owner
 """
 
-import pytest
-
 from ea.calendar import CalendarClient
 from ea.poll import run_poll
-from ea.scheduler import ScheduleResult
 from ea.state import StateStore
 from tests.fake_gmail import FakeGmailClient, FakeMsg
 
@@ -63,7 +60,7 @@ class TestParserException:
         gmail = _reply_context_thread()
         state = StateStore(path=None)
 
-        summary = run_poll(
+        run_poll(
             gmail, FREE_CAL, state, CONFIG,
             parser=lambda _: (_ for _ in ()).throw(RuntimeError("Claude API timeout")),
         )
@@ -151,7 +148,7 @@ class TestReplyContextCommand:
         gmail = _reply_context_thread()
         state = StateStore(path=None)
 
-        summary = run_poll(
+        run_poll(
             gmail, FREE_CAL, state, CONFIG,
             parser=self._booked_parser,
         )

@@ -13,7 +13,6 @@ released automatically when the process exits, even on crash.
 import fcntl
 import os
 import time as _time
-from pathlib import Path
 
 LOCK_FILE = ".state.lock"
 

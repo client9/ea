@@ -25,7 +25,6 @@ from ea.responder import (
     handle_reschedule_result,
     handle_confirmation_reply,
     handle_external_reply,
-    _expiry,
 )
 from ea.scheduler import evaluate_parsed
 from ea.state import StateStore
@@ -72,7 +71,8 @@ def run_poll(
     if parser is None:
         from ea.parser.meeting_parser import parse_meeting_request
         tz_name = schedule.get("timezone", "UTC")
-        parser = lambda text: parse_meeting_request(text, tz_name=tz_name)
+        def parser(text):
+            return parse_meeting_request(text, tz_name=tz_name)
     working_hours = schedule.get("working_hours", {})
     preferred_hours = schedule.get("preferred_hours", {})
     timezone_name = schedule.get("timezone", "UTC")

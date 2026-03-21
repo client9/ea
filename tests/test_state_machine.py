@@ -21,11 +21,8 @@ Dates used throughout:
 
 from datetime import datetime, timezone, timedelta
 
-import pytest
-
 from ea.calendar import CalendarClient
 from ea.poll import run_poll
-from ea.responder import handle_inbound_result, handle_confirmation_reply
 from ea.scheduler import ScheduleResult
 from ea.state import StateStore
 from tests.fake_gmail import FakeGmailClient, FakeMsg, NewThreadFakeGmailClient
@@ -135,8 +132,8 @@ class TestPass1Inbound:
         }})
         state = StateStore(path=None)
 
-        result = run_poll(gmail, calendar, state, CONFIG,
-                          parser=lambda _: parsed_open())
+        run_poll(gmail, calendar, state, CONFIG,
+                 parser=lambda _: parsed_open())
 
         assert gmail.has_label("t1", "ea-scheduled")
         assert len(calendar.events_created) == 1
@@ -380,7 +377,8 @@ class TestPass2PendingConfirmation:
         """Seed a thread and run Pass 1 to get into pending_confirmation state."""
         gmail = make_inbound_thread()
         state = StateStore(path=None)
-        parser = lambda _: parsed_after_hours() if after_hours else parsed_open()
+        def parser(_):
+            return parsed_after_hours() if after_hours else parsed_open()
         run_poll(gmail, FREE_CALENDAR, state, CONFIG, parser=parser)
         return gmail, state
 
@@ -490,8 +488,6 @@ class TestPass2PendingConfirmation:
     def test_no_new_reply_does_nothing(self):
         """If I haven't replied yet, Pass 2 should do nothing."""
         gmail, state = self._setup()
-        entry_before = dict(state.get("t1"))
-
         run_poll(gmail, FREE_CALENDAR, state, CONFIG,
                  parser=lambda _: parsed_after_hours())
 
@@ -897,7 +893,6 @@ class TestRescheduleEvent:
         assert len(calendar.events_updated) == 1
         updated = calendar.events_updated[0]
         # New end should be FRI_10AM + 60 min
-        from datetime import datetime, timedelta, timezone
         new_start = datetime.fromisoformat(updated["start"])
         new_end   = datetime.fromisoformat(updated["end"])
         assert (new_end - new_start).total_seconds() == 3600
@@ -1012,7 +1007,6 @@ class TestFindMatchingEvent:
 
     def test_no_time_hint_searches_14_days(self):
         """With no search_datetimes, an event within 14 days should be found."""
-        from datetime import datetime, timezone, timedelta
         from ea.scheduler import find_matching_event
         future = (datetime.now(timezone.utc) + timedelta(days=3)).isoformat()
         future_end = (datetime.now(timezone.utc) + timedelta(days=3, minutes=30)).isoformat()

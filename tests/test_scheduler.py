@@ -6,10 +6,9 @@ no file I/O or API dependencies.
 """
 
 from datetime import datetime, timedelta, timezone
-import pytest
 
 from ea.calendar import CalendarClient
-from ea.scheduler import SlotResult, check_slot
+from ea.scheduler import check_slot
 
 # ---------------------------------------------------------------------------
 # Shared fixtures

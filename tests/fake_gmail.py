@@ -9,7 +9,7 @@ In-memory GmailClient for state machine tests. Supports:
 """
 
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from ea.gmail import GmailMessage, GmailThread
 

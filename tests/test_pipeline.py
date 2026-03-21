@@ -5,9 +5,6 @@ All tests bypass the Claude API by passing hand-crafted parsed dicts directly.
 process_thread() (which calls the live parser) is covered by integration tests.
 """
 
-from datetime import datetime, timezone
-import pytest
-
 from ea.calendar import CalendarClient
 from ea.scheduler import ScheduleResult, evaluate_parsed
 

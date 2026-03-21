@@ -7,13 +7,11 @@ Tests for Phase 1 additions:
   - find_slots() slot-finding logic
 """
 
-from datetime import datetime, timezone, timedelta
-
-import pytest
+from datetime import datetime, timezone
 
 from ea.calendar import CalendarClient
 from ea.poll import run_poll
-from ea.scheduler import find_slots, ScheduleResult
+from ea.scheduler import find_slots
 from ea.state import StateStore
 from tests.fake_gmail import FakeGmailClient, FakeMsg
 

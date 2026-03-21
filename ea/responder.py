@@ -725,9 +725,6 @@ def handle_external_reply(
     my_email    = config["user"]["email"]
     owner_tz    = config.get("schedule", {}).get("timezone", "UTC")
     attendee_tz = entry.get("attendee_tz")
-    suggested_slots = entry.get("suggested_slots", [])
-
-    lower = reply_text.lower().strip()
 
     # Classification is delegated to find_slots_fn (injected by the caller).
     if find_slots_fn:
