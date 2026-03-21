@@ -24,7 +24,9 @@ def _print_times(proposed_times: list, label: str = "PROPOSED TIMES"):
         return
     print(f"\n  🕐 {label}:")
     for entry in proposed_times:
-        print(f"     • {entry.get('text', '?')}")
+        tw = entry.get("time_window")
+        tw_suffix = f"  [window: {tw}]" if tw else ""
+        print(f"     • {entry.get('text', '?')}{tw_suffix}")
         for iso in entry.get("datetimes", []):
             print(f"       {iso}")
 
@@ -90,7 +92,7 @@ def _print_suggest_preview(result: dict, config: dict | None = None):
     """Show what the suggest_times email would look like using the live calendar."""
     from ea.auth import load_creds
     from ea.calendar import CalendarClient
-    from ea.scheduler import find_slots
+    from ea.scheduler import find_slots, time_window_bounds
     from ea.responder import _format_slot_suggestions
     from datetime import datetime
     from zoneinfo import ZoneInfo
@@ -120,13 +122,19 @@ def _print_suggest_preview(result: dict, config: dict | None = None):
     all_attendees = [my_email] + [a for a in attendees_parsed if a != my_email]
 
     restrict_to_date = None
+    time_after, time_before = None, None
     proposed_times = result.get("proposed_times") or []
     if proposed_times:
-        raw_dt = (proposed_times[0].get("datetimes") or [None])[0]
+        entry = proposed_times[0]
+        raw_dt = (entry.get("datetimes") or [None])[0]
         if raw_dt:
-            restrict_to_date = (
-                datetime.fromisoformat(raw_dt).astimezone(ZoneInfo(tz_name)).date()
-            )
+            anchor_dt = datetime.fromisoformat(raw_dt).astimezone(ZoneInfo(tz_name))
+            restrict_to_date = anchor_dt.date()
+        else:
+            anchor_dt = None
+        time_after, time_before = time_window_bounds(
+            entry.get("time_window"), anchor_dt
+        )
 
     try:
         slots = find_slots(
@@ -137,6 +145,8 @@ def _print_suggest_preview(result: dict, config: dict | None = None):
             tz_name=tz_name,
             calendar=calendar,
             restrict_to_date=restrict_to_date,
+            time_after=time_after,
+            time_before=time_before,
         )
     except Exception as e:
         print(f"  (skipped — calendar lookup failed: {e})")

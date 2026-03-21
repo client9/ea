@@ -119,7 +119,8 @@ Return a JSON object with the following fields:
   "proposed_times": [
     {
       "text": "the original natural language phrase, e.g. 'Thursday at 2pm EST' or 'at 3 or 5pm'",
-      "normalized": ["simple English time/date expressions. For timed events: one per distinct START time (e.g. 'Thursday at 2pm'). For all-day events: one or two date phrases — the start date, and optionally the end date for ranges (e.g. 'Monday through Friday' → ['Monday', 'Friday']; 'next week Monday' → ['next Monday', 'next Friday']; 'Monday' → ['Monday']). Break compound timed expressions into individual items."]
+      "normalized": ["simple English time/date expressions. For timed events: one per distinct START time (e.g. 'Thursday at 2pm'). For all-day events: one or two date phrases — the start date, and optionally the end date for ranges (e.g. 'Monday through Friday' → ['Monday', 'Friday']; 'next week Monday' → ['next Monday', 'next Friday']; 'Monday' → ['Monday']). Break compound timed expressions into individual items."],
+      "time_window": "after" | "before" | "around" | "morning" | "afternoon" | "evening" | null
     }
   ],
   "new_proposed_times": [
@@ -153,6 +154,17 @@ Rules:
 - In normalized: keep expressions in plain English (e.g. "Next Friday at 1pm"). Do NOT convert to dates or UTC. A separate system handles that conversion.
 - new_proposed_times should always be present in the JSON (empty list [] if not applicable).
 - all_day and event_type should always be present (all_day defaults to false, event_type defaults to null for timed events).
+- time_window: captures directional or fuzzy time qualifiers on proposed_times entries. Set to:
+  - "after"     — "after 1pm", "from 2pm onwards", "any time after noon"
+  - "before"    — "before 3pm", "by noon", "no later than 2pm"
+  - "around"    — "around 2pm", "roughly 3pm", "approximately noon"
+  - "morning"   — "in the morning", "morning time", no specific anchor time
+  - "afternoon" — "in the afternoon", "afternoon works"
+  - "evening"   — "in the evening", "evening slot"
+  - null        — exact time with no qualifier (default; e.g. "Thursday at 2pm")
+  For "after"/"before"/"around": normalized still contains the anchor time phrase (e.g. "after 1pm" → normalized: ["today at 1pm"], time_window: "after").
+  For "morning"/"afternoon"/"evening": normalized contains only the day if specified (e.g. "Friday morning" → normalized: ["Friday"], time_window: "morning").
+  Always include time_window on each proposed_times entry (null if no qualifier).
 """
 
 

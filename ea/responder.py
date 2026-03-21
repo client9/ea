@@ -180,9 +180,27 @@ def handle_inbound_result(
         return "notified-ambiguous"
 
     if result.outcome == "busy":
-        from ea.scheduler import find_slots
+        from ea.scheduler import find_slots, time_window_bounds
 
         schedule = config.get("schedule", {})
+
+        # Extract time-window qualifier from the original proposed_times so that
+        # alternative slots respect constraints like "after 1pm" or "morning".
+        _busy_time_after, _busy_time_before = None, None
+        _busy_proposed = (result.parsed or {}).get("proposed_times") or []
+        if _busy_proposed:
+            _busy_entry = _busy_proposed[0]
+            _busy_raw_dt = (_busy_entry.get("datetimes") or [None])[0]
+            if _busy_raw_dt:
+                _busy_tz = schedule.get("timezone", "UTC")
+                _busy_anchor = datetime.fromisoformat(_busy_raw_dt).astimezone(
+                    ZoneInfo(_busy_tz)
+                )
+            else:
+                _busy_anchor = None
+            _busy_time_after, _busy_time_before = time_window_bounds(
+                _busy_entry.get("time_window"), _busy_anchor
+            )
 
         if find_slots_fn:
             slots = find_slots_fn(result.parsed, config, calendar)
@@ -194,6 +212,8 @@ def handle_inbound_result(
                 preferred_hours=schedule.get("preferred_hours", {}),
                 tz_name=schedule.get("timezone", "UTC"),
                 calendar=calendar,
+                time_after=_busy_time_after,
+                time_before=_busy_time_before,
             )
 
         if slots:
@@ -508,20 +528,29 @@ def handle_suggest_times_trigger(
     if not recipient or recipient.lower() == my_email.lower():
         recipient = my_email
 
-    # Extract optional day constraint from proposed_times (e.g. "on Friday").
-    # The parser captures this as a single normalized phrase; we resolve it to
-    # a local date so find_slots can restrict its search to that day.
+    # Extract optional day constraint and time-window qualifier from proposed_times.
+    # The parser captures a day/window as a normalized phrase; we resolve it to a
+    # local date so find_slots can restrict its search to that day.  Any directional
+    # qualifier (e.g. "after 1pm", "morning") is extracted and passed as time bounds.
     restrict_to_date = None
+    time_after, time_before = None, None
     proposed_times = parsed.get("proposed_times") or []
     if proposed_times:
-        raw_dt = (proposed_times[0].get("datetimes") or [None])[0]
+        tz_name_local = schedule.get("timezone", "UTC")
+        entry = proposed_times[0]
+        raw_dt = (entry.get("datetimes") or [None])[0]
         if raw_dt:
-            tz_name_local = schedule.get("timezone", "UTC")
-            restrict_to_date = (
-                datetime.fromisoformat(raw_dt)
-                .astimezone(ZoneInfo(tz_name_local))
-                .date()
+            anchor_dt = datetime.fromisoformat(raw_dt).astimezone(
+                ZoneInfo(tz_name_local)
             )
+            restrict_to_date = anchor_dt.date()
+        else:
+            anchor_dt = None
+        from ea.scheduler import time_window_bounds
+
+        time_after, time_before = time_window_bounds(
+            entry.get("time_window"), anchor_dt
+        )
 
     # Find slots
     all_attendees = [my_email] + [a for a in attendees_parsed if a != my_email]
@@ -536,6 +565,8 @@ def handle_suggest_times_trigger(
             tz_name=schedule.get("timezone", "UTC"),
             calendar=calendar,
             restrict_to_date=restrict_to_date,
+            time_after=time_after,
+            time_before=time_before,
         )
 
     if not slots:

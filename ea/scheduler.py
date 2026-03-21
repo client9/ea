@@ -22,6 +22,46 @@ Outcome = Literal["ambiguous", "open", "busy", "needs_confirmation"]
 
 _SLOT_PRIORITY = {"preferred": 0, "working": 1, "after_hours": 2}
 
+# ---------------------------------------------------------------------------
+# Time-window qualifier helpers
+# ---------------------------------------------------------------------------
+
+_PERIOD_BOUNDS: dict[str, tuple[time, time]] = {
+    "morning": (time(8, 0), time(12, 0)),
+    "afternoon": (time(12, 0), time(17, 0)),
+    "evening": (time(17, 0), time(20, 0)),
+}
+
+
+def time_window_bounds(
+    time_window: str | None,
+    anchor_dt: datetime | None,
+) -> tuple[time | None, time | None]:
+    """Map a time_window qualifier and optional anchor datetime to (time_after, time_before).
+
+    Returns a tuple of local time objects representing the slot search window:
+    - time_after:  only return slots starting at or after this time (None = no lower bound)
+    - time_before: only return slots starting before this time (None = no upper bound)
+    """
+    if time_window in _PERIOD_BOUNDS:
+        return _PERIOD_BOUNDS[time_window]
+    if anchor_dt is None:
+        return None, None
+    anchor = anchor_dt.time().replace(second=0, microsecond=0)
+    if time_window == "after":
+        return anchor, None
+    if time_window == "before":
+        return None, anchor
+    if time_window == "around":
+        anchor_naive = datetime.combine(date.today(), anchor)
+        # Slot window: [anchor − 30m, anchor + 30m] by start time.
+        # time_before is an exclusive upper bound on slot_start, so we set it to
+        # anchor + 60m so that the slot starting at anchor + 30m is included.
+        after = (anchor_naive - timedelta(minutes=30)).time()
+        before = (anchor_naive + timedelta(minutes=60)).time()
+        return after, before
+    return None, None
+
 
 # ---------------------------------------------------------------------------
 # Result types
@@ -207,6 +247,8 @@ def find_slots(
     lookahead_days: int = 7,
     now: datetime | None = None,
     restrict_to_date: "date | None" = None,
+    time_after: "time | None" = None,
+    time_before: "time | None" = None,
 ) -> list[dict]:
     """
     Return up to n free slots over the next lookahead_days, sorted by
@@ -215,6 +257,9 @@ def find_slots(
     restrict_to_date: if set, only return slots on that specific local date,
     ignoring working_hours day restrictions (so e.g. Friday slots are found
     even if Friday isn't in working_hours).
+
+    time_after:  if set, only consider slots starting at or after this local time.
+    time_before: if set, only consider slots starting before this local time.
 
     Makes a single freebusy call for the entire window, then walks candidate
     30-minute-aligned slots within each day's working hours.
@@ -257,8 +302,10 @@ def find_slots(
         wh_start = time.fromisoformat(wh["start"])
         wh_end = time.fromisoformat(wh["end"])
 
-        # Walk in 30-minute increments across the working day
-        cursor = datetime.combine(current_day, wh_start, tzinfo=tz)
+        # Walk in 30-minute increments across the working day.
+        # If time_after is set, start the cursor at the later of wh_start and time_after.
+        effective_start = max(wh_start, time_after) if time_after else wh_start
+        cursor = datetime.combine(current_day, effective_start, tzinfo=tz)
         day_end = datetime.combine(current_day, wh_end, tzinfo=tz)
 
         while cursor + timedelta(minutes=duration_minutes) <= day_end:
@@ -269,6 +316,10 @@ def find_slots(
             if slot_start <= now:
                 cursor += timedelta(minutes=30)
                 continue
+
+            # Honour time_before constraint — remaining slots on this day are all too late
+            if time_before and slot_start.time() >= time_before:
+                break
 
             slot_type = _classify_slot(
                 slot_start, slot_end, preferred_hours, working_hours
