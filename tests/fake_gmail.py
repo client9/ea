@@ -181,6 +181,25 @@ class FakeGmailClient:
         return len(thread.messages) if thread else 0
 
 
+class NewThreadFakeGmailClient(FakeGmailClient):
+    """FakeGmailClient variant where send_email always creates a new thread.
+
+    Simulates Gmail's behaviour when it ignores the threadId hint because the
+    outgoing subject does not match the original thread's subject — exactly what
+    happens when EA sends "EA: confirm slot — <original subject>" as a reply to
+    the original scheduling thread.
+    """
+
+    def send_email(self, to, subject, body, thread_id=None, extra_headers=None):
+        return super().send_email(
+            to=to,
+            subject=subject,
+            body=body,
+            thread_id=None,          # force new thread regardless of caller's intent
+            extra_headers=extra_headers,
+        )
+
+
 @dataclass
 class FakeMsg:
     """Convenience builder for seeding messages in FakeGmailClient.seed_thread()."""

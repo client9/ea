@@ -194,6 +194,50 @@ def test_needs_confirmation_only_when_all_free_slots_are_after_hours():
 
 
 # ---------------------------------------------------------------------------
+# Explicit times skip needs_confirmation
+# ---------------------------------------------------------------------------
+
+def test_explicit_time_after_hours_books_directly():
+    p = parsed(proposed_times=[{"text": "Thursday at 7pm", "datetimes": [THU_7PM_UTC]}])
+    p["times_explicitly_specified"] = True
+    result = call(p, free_calendar(MY_EMAIL, "sarah@example.com"))
+    assert result.outcome == "open"
+    assert result.slot_type == "after_hours"
+
+
+def test_explicit_time_after_hours_busy_returns_busy():
+    p = parsed(proposed_times=[{"text": "Thursday at 7pm", "datetimes": [THU_7PM_UTC]}])
+    p["times_explicitly_specified"] = True
+    result = call(p, busy_at("sarah@example.com", THU_7PM_UTC, "2026-03-19T23:30:00Z"))
+    assert result.outcome == "busy"
+    assert "sarah@example.com" in result.busy_attendees
+
+
+def test_non_explicit_time_after_hours_still_needs_confirmation():
+    p = parsed(proposed_times=[{"text": "Thursday at 7pm", "datetimes": [THU_7PM_UTC]}])
+    p["times_explicitly_specified"] = False
+    result = call(p, free_calendar(MY_EMAIL, "sarah@example.com"))
+    assert result.outcome == "needs_confirmation"
+    assert result.slot_type == "after_hours"
+
+
+def test_explicit_time_preferred_hours_unchanged():
+    p = parsed()  # default THU_2PM_UTC (preferred)
+    p["times_explicitly_specified"] = True
+    result = call(p, free_calendar(MY_EMAIL, "sarah@example.com"))
+    assert result.outcome == "open"
+    assert result.slot_type == "preferred"
+
+
+def test_explicit_time_working_hours_unchanged():
+    p = parsed(proposed_times=[{"text": "Thursday at 9am", "datetimes": [THU_9AM_UTC]}])
+    p["times_explicitly_specified"] = True
+    result = call(p, free_calendar(MY_EMAIL, "sarah@example.com"))
+    assert result.outcome == "open"
+    assert result.slot_type == "working"
+
+
+# ---------------------------------------------------------------------------
 # Busy outcome
 # ---------------------------------------------------------------------------
 

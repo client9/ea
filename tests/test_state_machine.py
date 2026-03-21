@@ -28,7 +28,7 @@ from ea.poll import run_poll
 from ea.responder import handle_inbound_result, handle_confirmation_reply
 from ea.scheduler import ScheduleResult
 from ea.state import StateStore
-from tests.fake_gmail import FakeGmailClient, FakeMsg
+from tests.fake_gmail import FakeGmailClient, FakeMsg, NewThreadFakeGmailClient
 
 # ---------------------------------------------------------------------------
 # Shared config / constants
@@ -103,6 +103,22 @@ def parsed_after_hours(topic="Coffee chat"):
         "duration_minutes": 30,
         "ambiguities": [],
         "urgency": "medium",
+    }
+
+
+def parsed_explicit_after_hours():
+    return {
+        "intent": "meeting_request",
+        "topic": "Coffee chat",
+        "attendees": [SARAH],
+        "proposed_times": [{"text": "Thursday at 7pm", "datetimes": [THU_7PM]}],
+        "new_proposed_times": [],
+        "duration_minutes": 30,
+        "ambiguities": [],
+        "urgency": "medium",
+        "all_day": False,
+        "event_type": None,
+        "times_explicitly_specified": True,
     }
 
 
@@ -1011,3 +1027,158 @@ class TestFindMatchingEvent:
         result = find_matching_event("budget review", [], cal, "America/New_York")
         assert isinstance(result, dict)
         assert result["id"] == "ev-future"
+
+
+# ---------------------------------------------------------------------------
+# Explicit times — skip after-hours confirmation
+# ---------------------------------------------------------------------------
+
+class TestExplicitTimesEndToEnd:
+
+    def test_explicit_after_hours_books_directly(self):
+        """Owner names time explicitly → books immediately, no confirmation email."""
+        gmail = make_inbound_thread()
+        state = StateStore(path=None)
+        calendar = CalendarClient(fixture_data={"calendars": {
+            MY_EMAIL: {"busy": []}, SARAH: {"busy": []},
+        }})
+        run_poll(gmail, calendar, state, CONFIG,
+                 parser=lambda _: parsed_explicit_after_hours())
+
+        assert gmail.has_label("t1", "ea-scheduled")
+        assert len(calendar.events_created) == 1
+        assert state.get("t1") is None
+        sent = gmail.sent_to(MY_EMAIL)
+        assert not any("confirm slot" in m.subject for m in sent)
+        assert any("booked" in m.subject.lower() for m in sent)
+
+    def test_explicit_after_hours_busy_no_pending_confirmation(self):
+        """Explicit time, but slot is busy → notified, NOT pending_confirmation."""
+        gmail = make_inbound_thread()
+        state = StateStore(path=None)
+        busy_cal = CalendarClient(fixture_data={"calendars": {
+            MY_EMAIL: {"busy": []},
+            SARAH: {"busy": [{"start": THU_7PM, "end": "2026-03-19T23:30:00+00:00"}]},
+        }})
+        run_poll(gmail, busy_cal, state, CONFIG,
+                 parser=lambda _: parsed_explicit_after_hours(),
+                 find_slots_fn=lambda *_: [])  # no alternatives found
+
+        assert not gmail.has_label("t1", "ea-scheduled")
+        assert state.get("t1") is None
+        assert gmail.has_label("t1", "ea-notified")
+
+    def test_non_explicit_after_hours_still_creates_pending(self):
+        """Generic EA command + after-hours slot → still asks for confirmation."""
+        gmail = make_inbound_thread()
+        state = StateStore(path=None)
+        run_poll(gmail, FREE_CALENDAR, state, CONFIG,
+                 parser=lambda _: parsed_after_hours())
+
+        entry = state.get("t1")
+        assert entry is not None
+        assert entry["type"] == "pending_confirmation"
+        sent = gmail.sent_to(MY_EMAIL)
+        assert any("confirm slot" in m.subject for m in sent)
+
+
+# ---------------------------------------------------------------------------
+# Confirmation flow — Gmail creates a new thread for the confirmation email
+# ---------------------------------------------------------------------------
+
+def make_inbound_thread_new_thread(thread_id="t1"):
+    """Same as make_inbound_thread but uses NewThreadFakeGmailClient so that
+    send_email always creates a separate thread, simulating Gmail's behaviour
+    when the confirmation subject differs from the original thread subject."""
+    gmail = NewThreadFakeGmailClient(my_email=MY_EMAIL)
+    gmail.seed_thread(thread_id, [
+        FakeMsg(SARAH, MY_EMAIL, "Coffee chat?",
+                "Hey, can we grab a coffee this week? Thursday at 7pm works for me."),
+        FakeMsg(MY_EMAIL, SARAH, "Re: Coffee chat?",
+                "EA: please schedule"),
+    ])
+    return gmail
+
+
+class TestConfirmationNewThread:
+
+    def test_confirmation_messages_seen_is_1_for_new_thread(self):
+        """When Gmail creates a new thread for the confirmation email,
+        confirmation_messages_seen must be 1 (relative to the new thread),
+        not msgs_before_send+1 (which was relative to the original thread)."""
+        gmail = make_inbound_thread_new_thread()
+        state = StateStore(path=None)
+        run_poll(gmail, FREE_CALENDAR, state, CONFIG,
+                 parser=lambda _: parsed_after_hours())
+
+        entry = state.get("t1")
+        assert entry is not None
+        assert entry["type"] == "pending_confirmation"
+        conf_id = entry["confirmation_thread_id"]
+        assert conf_id != "t1"                              # different thread
+        assert entry["confirmation_messages_seen"] == 1    # skip only EA's own message
+
+    def test_new_confirmation_thread_gets_notified_label(self):
+        """The new confirmation thread must be labeled ea-notified so Pass 1
+        does not try to process 'EA: confirm slot — ...' as a fresh command."""
+        gmail = make_inbound_thread_new_thread()
+        state = StateStore(path=None)
+        run_poll(gmail, FREE_CALENDAR, state, CONFIG,
+                 parser=lambda _: parsed_after_hours())
+
+        conf_id = state.get("t1")["confirmation_thread_id"]
+        assert gmail.has_label(conf_id, "ea-notified")
+        # Original thread must NOT have ea-notified (it is still pending)
+        assert not gmail.has_label("t1", "ea-notified")
+
+    def test_yes_reply_on_new_confirmation_thread_books_event(self):
+        """Full round-trip: confirmation lands in a new thread, owner replies
+        'yes' → Pass 2 detects the reply and books the event."""
+        gmail = make_inbound_thread_new_thread()
+        state = StateStore(path=None)
+        calendar = CalendarClient(fixture_data={"calendars": {
+            MY_EMAIL: {"busy": []}, SARAH: {"busy": []},
+        }})
+
+        # Pass 1 — creates pending_confirmation with a separate confirmation thread
+        run_poll(gmail, calendar, state, CONFIG,
+                 parser=lambda _: parsed_after_hours())
+
+        conf_id = state.get("t1")["confirmation_thread_id"]
+        assert conf_id != "t1"
+
+        # Owner replies "yes" on the separate confirmation thread
+        gmail.add_reply(conf_id, MY_EMAIL, "yes")
+
+        # Pass 2 — must detect "yes" and book the event
+        run_poll(gmail, calendar, state, CONFIG,
+                 parser=lambda _: parsed_after_hours())
+
+        assert gmail.has_label("t1", "ea-scheduled")
+        assert len(calendar.events_created) == 1
+        assert state.get("t1") is None
+
+    def test_regression_same_thread_confirmation_still_works(self):
+        """When the confirmation lands on the same thread (normal FakeGmailClient),
+        the existing confirmation_messages_seen = msgs_before_send + 1 logic is
+        preserved and a 'yes' reply still books the event."""
+        gmail = make_inbound_thread()   # standard client — same thread
+        state = StateStore(path=None)
+
+        run_poll(gmail, FREE_CALENDAR, state, CONFIG,
+                 parser=lambda _: parsed_after_hours())
+
+        entry = state.get("t1")
+        conf_id = entry["confirmation_thread_id"]
+        assert conf_id == "t1"                              # same thread
+        assert entry["confirmation_messages_seen"] == 3    # 2 original + 1 EA confirmation
+
+        calendar = CalendarClient(fixture_data={"calendars": {
+            MY_EMAIL: {"busy": []}, SARAH: {"busy": []},
+        }})
+        gmail.add_reply("t1", MY_EMAIL, "yes")
+        run_poll(gmail, calendar, state, CONFIG,
+                 parser=lambda _: parsed_after_hours())
+
+        assert gmail.has_label("t1", "ea-scheduled")
+        assert len(calendar.events_created) == 1

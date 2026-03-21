@@ -199,7 +199,8 @@ def evaluate_parsed(
     best_start, best_slot = free_slots[0]
     best_end = best_start + timedelta(minutes=duration_minutes)
 
-    outcome = "needs_confirmation" if best_slot.slot_type == "after_hours" else "open"
+    times_explicit = parsed.get("times_explicitly_specified", False)
+    outcome = "needs_confirmation" if (best_slot.slot_type == "after_hours" and not times_explicit) else "open"
 
     return ScheduleResult(
         outcome=outcome,

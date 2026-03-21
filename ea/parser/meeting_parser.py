@@ -44,6 +44,7 @@ Return a JSON object with the following fields:
   "location": null or "location or video call platform if mentioned",
   "timezone": null or "timezone if mentioned",
   "ambiguities": ["unclear or missing details — only for meeting_request; omit for other intents"],
+  "times_explicitly_specified": true or false,
   "urgency": "low/medium/high based on tone and timing"
 }
 
@@ -54,6 +55,7 @@ Rules:
 - For reschedule: proposed_times holds the existing event's current time. new_proposed_times holds the new desired time. duration_minutes is the new duration if specified, else null (keep existing).
 - For all-day events (all_day=true): duration_minutes is null. proposed_times[0].normalized contains the start date phrase and, if a range, the end date phrase as the second element. event_type captures the nature: "ooo" for out-of-office, "vacation" for vacation/holiday leave, "conference" for external conference, "holiday" for public holiday, "block" for generic blocking.
 - For informational all-day events mentioned as "still free", "informational", "transparent", or "no conflicts" — set event_type to "conference" or "holiday" as appropriate. These appear free in scheduling.
+- times_explicitly_specified: Set true when the owner's EA: command itself contains a specific time or date (e.g. "EA: book at 3pm", "EA: schedule Thursday at 2pm", "EA: book the 3pm slot"). Set false when the command is generic with no embedded time (e.g. "EA: please schedule", "EA: book it", "EA: schedule this meeting"). If the time only appears in the other party's message but not in the EA: command, set false. Always include this field.
 - Return ONLY valid JSON. No explanation, no markdown, no code fences.
 - Set intent to "none" if the text is none of the above types.
 - In normalized: keep expressions in plain English (e.g. "Next Friday at 1pm"). Do NOT convert to dates or UTC. A separate system handles that conversion.
@@ -163,6 +165,7 @@ def parse_meeting_request(text: str, tz_name: str = "UTC") -> dict:
         }
 
     # Convert normalized phrases → datetimes (UTC for timed events, local dates for all-day).
+    parsed.setdefault("times_explicitly_specified", False)
     all_day = parsed.get("all_day", False)
     for entry in parsed.get("proposed_times") or []:
         normalized = entry.pop("normalized", None) or []

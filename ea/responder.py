@@ -208,12 +208,23 @@ def handle_inbound_result(
             thread_id=thread_id,
             extra_headers={"X-EA-Original-Thread": thread_id},
         )
+        # Gmail may ignore the threadId hint when the subject differs and create a
+        # new thread instead.  confirmation_messages_seen must be relative to
+        # whichever thread the confirmation actually landed in.
+        if conf_msg.thread_id == thread_id:
+            # Same thread as original — skip original messages + this one.
+            msgs_seen = msgs_before_send + 1
+        else:
+            # New thread created by Gmail — skip only EA's own confirmation message.
+            msgs_seen = 1
+            # Prevent Pass 1 from treating the new thread as a fresh EA: command.
+            gmail.apply_label(conf_msg.thread_id, "ea-notified")
         state.set(thread_id, {
             "type": "pending_confirmation",
             "confirmation_thread_id": conf_msg.thread_id,
             "created_at": _now(),
             "expires_at": _expiry(),
-            "confirmation_messages_seen": msgs_before_send + 1,  # skip through EA confirmation
+            "confirmation_messages_seen": msgs_seen,
             "schedule_result": {
                 "outcome": result.outcome,
                 "slot_start": result.slot_start.isoformat(),
