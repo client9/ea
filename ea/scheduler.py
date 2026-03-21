@@ -1,13 +1,13 @@
 """
 scheduler.py
 
-Two levels of scheduling logic:
+Three levels of scheduling logic:
 
-  check_slot()     — low-level: is one specific slot free, and what type is it?
+  check_slot()      — low-level: is one specific slot free, and what type is it?
   evaluate_parsed() — mid-level: given a Claude-parsed thread dict and a calendar,
                       return one of four outcomes (ambiguous / open / busy /
                       needs_confirmation).
-  process_thread()  — high-level: full pipeline from raw thread text to outcome.
+  find_slots()      — find available slots over a future window.
 """
 
 from dataclasses import dataclass, field
@@ -56,46 +56,6 @@ class ScheduleResult:
 
     # Raw Claude parse — always present for debugging
     parsed: dict = field(default_factory=dict)
-
-
-# ---------------------------------------------------------------------------
-# High-level pipeline
-# ---------------------------------------------------------------------------
-
-def process_thread(
-    thread_text: str,
-    config: dict,
-    calendar: CalendarClient,
-) -> ScheduleResult:
-    """
-    Full pipeline: detect EA: trigger → parse thread → check calendar → outcome.
-
-    Args:
-        thread_text: Raw email thread text (must contain an EA: reply).
-        config:      Loaded config.toml dict (user.email, schedule.*).
-        calendar:    CalendarClient instance (fixture or live).
-
-    Raises:
-        ValueError if no EA: trigger is found in the thread.
-    """
-    from ea.triggers import find_ea_trigger
-    from ea.parser.meeting_parser import parse_meeting_request
-
-    my_email = config["user"]["email"]
-    if find_ea_trigger(thread_text, my_email) is None:
-        raise ValueError("No EA: trigger found in thread")
-
-    parsed = parse_meeting_request(thread_text)
-
-    schedule = config.get("schedule", {})
-    return evaluate_parsed(
-        parsed=parsed,
-        working_hours=schedule.get("working_hours", {}),
-        preferred_hours=schedule.get("preferred_hours", {}),
-        timezone=schedule.get("timezone", "UTC"),
-        calendar=calendar,
-        my_email=my_email,
-    )
 
 
 # ---------------------------------------------------------------------------

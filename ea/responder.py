@@ -9,13 +9,67 @@ GmailClient / CalendarClient duck-type interface, making them testable
 with FakeGmailClient and CalendarClient(fixture_data=...).
 """
 
-from datetime import datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from ea.scheduler import ScheduleResult
 from ea.state import StateStore
 
 EXPIRY_HOURS = 48
+
+
+def _fmt_range(start: datetime, end: datetime) -> str:
+    """Format a time range as 'Thursday Mar 19, 02:00–03:00 PM PDT'."""
+    return (
+        start.strftime("%A %b %d, %I:%M") +
+        end.strftime("–%I:%M %p ") +
+        start.strftime("%Z")
+    )
+
+
+def _send_calendar_error(gmail, my_email: str, thread_id: str, subject: str, action: str, exc: Exception) -> str:
+    """Send a calendar-error notification email and return 'calendar-error'."""
+    gmail.send_email(
+        to=my_email,
+        subject=f"EA: calendar error — {subject}",
+        body=f"EA tried to {action} but the calendar API returned an error:\n\n{exc}",
+        thread_id=thread_id,
+    )
+    gmail.apply_label(thread_id, "ea-notified")
+    return "calendar-error"
+
+
+def _handle_event_not_found(gmail, my_email: str, thread_id: str, topic: str) -> str:
+    gmail.send_email(
+        to=my_email,
+        subject=f"EA: event not found — {topic}",
+        body=(
+            f"EA could not find a calendar event matching '{topic}'.\n"
+            "Check the event title and time, then try again."
+        ),
+        thread_id=thread_id,
+    )
+    gmail.apply_label(thread_id, "ea-notified")
+    return "notified-not-found"
+
+
+def _handle_event_ambiguous(gmail, my_email: str, thread_id: str, topic: str, match: list, intent_label: str) -> str:
+    lines = "\n".join(
+        f"  • {ev.get('summary', '?')}  —  "
+        f"{(ev.get('start') or {}).get('dateTime', '?')}"
+        for ev in match
+    )
+    gmail.send_email(
+        to=my_email,
+        subject=f"EA: ambiguous {intent_label} — {topic}",
+        body=(
+            f"EA found multiple events matching '{topic}':\n\n{lines}\n\n"
+            "Please be more specific (include the exact time or full title)."
+        ),
+        thread_id=thread_id,
+    )
+    gmail.apply_label(thread_id, "ea-notified")
+    return "notified-ambiguous"
 
 
 def _local_slot_desc(start: datetime, end: datetime, config: dict, attendee_tz: str | None = None) -> str:
@@ -28,11 +82,7 @@ def _local_slot_desc(start: datetime, end: datetime, config: dict, attendee_tz: 
     tz = ZoneInfo(tz_name)
     local_start = start.astimezone(tz)
     local_end   = end.astimezone(tz)
-    desc = (
-        local_start.strftime("%A %b %d, %I:%M") +
-        local_end.strftime("–%I:%M %p ") +
-        local_start.strftime("%Z")
-    )
+    desc = _fmt_range(local_start, local_end)
     if attendee_tz and attendee_tz != tz_name:
         try:
             att_tz = ZoneInfo(attendee_tz)
@@ -45,7 +95,7 @@ def _local_slot_desc(start: datetime, end: datetime, config: dict, attendee_tz: 
                 att_start.strftime("%Z") +
                 " for them)"
             )
-        except Exception:
+        except ZoneInfoNotFoundError:
             pass  # unrecognised tz string — skip the annotation
     return desc
 
@@ -92,14 +142,7 @@ def handle_inbound_result(
                 self_email=my_email,
             )
         except Exception as e:
-            gmail.send_email(
-                to=my_email,
-                subject=f"EA: calendar error — {subject}",
-                body=f"EA tried to schedule a meeting but the calendar API returned an error:\n\n{e}",
-                thread_id=thread_id,
-            )
-            gmail.apply_label(thread_id, "ea-notified")
-            return "calendar-error"
+            return _send_calendar_error(gmail, my_email, thread_id, subject, "schedule a meeting", e)
         slot_desc = _local_slot_desc(result.slot_start, result.slot_end, config, attendee_tz)
         gmail.send_email(
             to=my_email,
@@ -271,13 +314,7 @@ def handle_block_time_result(
                 self_email=my_email,
             )
         except Exception as e:
-            gmail.send_email(
-                to=my_email,
-                subject=f"EA: calendar error — {subject}",
-                body=f"EA tried to block time but the calendar API returned an error:\n\n{e}",
-            )
-            gmail.apply_label(thread_id, "ea-notified")
-            return "calendar-error"
+            return _send_calendar_error(gmail, my_email, thread_id, subject, "block time", e)
 
         slot_desc = _local_slot_desc(result.slot_start, result.slot_end, config)
         gmail.send_email(
@@ -343,8 +380,6 @@ def handle_allday_block(
     Bypasses working-hours and confirmation checks entirely — OOO/vacation events
     are always created regardless of time-of-day rules.
     """
-    from datetime import date, timedelta
-
     my_email  = config["user"]["email"]
     thread_id = original_thread.id
     subject   = original_thread.messages[0].subject
@@ -386,14 +421,7 @@ def handle_allday_block(
             transparency=transparency,
         )
     except Exception as e:
-        gmail.send_email(
-            to=my_email,
-            subject=f"EA: calendar error — {subject}",
-            body=f"EA tried to create an all-day event but the calendar API returned an error:\n\n{e}",
-            thread_id=thread_id,
-        )
-        gmail.apply_label(thread_id, "ea-notified")
-        return "calendar-error"
+        return _send_calendar_error(gmail, my_email, thread_id, subject, "create an all-day event", e)
 
     # Format a human-readable date description for the confirmation email
     if start_date == end_date_inclusive:
@@ -414,9 +442,7 @@ def handle_allday_block(
 
 def _format_date(iso_date: str) -> str:
     """Format a YYYY-MM-DD string as 'Monday Mar 23, 2026'."""
-    from datetime import date
-    d = date.fromisoformat(iso_date)
-    return d.strftime("%A %b %d, %Y")
+    return date.fromisoformat(iso_date).strftime("%A %b %d, %Y")
 
 
 # ---------------------------------------------------------------------------
@@ -463,12 +489,10 @@ def handle_suggest_times_trigger(
     if proposed_times:
         raw_dt = (proposed_times[0].get("datetimes") or [None])[0]
         if raw_dt:
-            from datetime import datetime as _dt
-            from zoneinfo import ZoneInfo as _ZI
             tz_name_local = schedule.get("timezone", "UTC")
             restrict_to_date = (
-                _dt.fromisoformat(raw_dt)
-                .astimezone(_ZI(tz_name_local))
+                datetime.fromisoformat(raw_dt)
+                .astimezone(ZoneInfo(tz_name_local))
                 .date()
             )
 
@@ -568,13 +592,22 @@ def handle_confirmation_reply(
     if any(w in lower for w in ("yes", "go ahead", "confirm", "ok", "sounds good")):
         start = datetime.fromisoformat(sr["slot_start"])
         end = datetime.fromisoformat(sr["slot_end"])
-        calendar.create_event(
-            topic=sr.get("topic") or "Meeting",
-            start=start.isoformat(),
-            end=end.isoformat(),
-            attendees=sr.get("attendees", [my_email]),
-            self_email=my_email,
-        )
+        try:
+            calendar.create_event(
+                topic=sr.get("topic") or "Meeting",
+                start=start.isoformat(),
+                end=end.isoformat(),
+                attendees=sr.get("attendees", [my_email]),
+                self_email=my_email,
+            )
+        except Exception as e:
+            gmail.send_email(
+                to=my_email,
+                subject="EA: calendar error — confirmed slot",
+                body=f"EA tried to book the confirmed slot but the calendar API returned an error:\n\n{e}",
+                thread_id=conf_thread_id,
+            )
+            return "calendar-error"
         state.delete(original_thread_id)
         gmail.apply_label(original_thread_id, "ea-scheduled")
         return "scheduled"
@@ -696,13 +729,7 @@ def handle_external_reply(
 
     lower = reply_text.lower().strip()
 
-    # --- They confirmed a specific slot ---
-    for slot in suggested_slots:
-        # Simple heuristic: if the reply mentions a time that matches a slot
-        # the caller should pass a pre-classified result via find_slots_fn
-        pass
-
-    # For testing, we rely on find_slots_fn to classify the reply.
+    # Classification is delegated to find_slots_fn (injected by the caller).
     if find_slots_fn:
         action, slots_or_slot = find_slots_fn(reply_text, entry)
 
@@ -793,35 +820,10 @@ def handle_cancel_result(
     topic = parsed.get("topic") or "event"
 
     if match is None:
-        gmail.send_email(
-            to=my_email,
-            subject=f"EA: event not found — {topic}",
-            body=(
-                f"EA could not find a calendar event matching '{topic}'.\n"
-                "Check the event title and time, then try again."
-            ),
-            thread_id=thread_id,
-        )
-        gmail.apply_label(thread_id, "ea-notified")
-        return "notified-not-found"
+        return _handle_event_not_found(gmail, my_email, thread_id, topic)
 
     if isinstance(match, list):
-        lines = "\n".join(
-            f"  • {ev.get('summary', '?')}  —  "
-            f"{(ev.get('start') or {}).get('dateTime', '?')}"
-            for ev in match
-        )
-        gmail.send_email(
-            to=my_email,
-            subject=f"EA: ambiguous cancel — {topic}",
-            body=(
-                f"EA found multiple events matching '{topic}':\n\n{lines}\n\n"
-                "Please be more specific (include the exact time or full title)."
-            ),
-            thread_id=thread_id,
-        )
-        gmail.apply_label(thread_id, "ea-notified")
-        return "notified-ambiguous"
+        return _handle_event_ambiguous(gmail, my_email, thread_id, topic, match, "cancel")
 
     # Single match — delete it
     event_id = match["id"]
@@ -879,35 +881,10 @@ def handle_reschedule_result(
 
     # --- handle not-found / ambiguous the same way as cancel ---
     if match is None:
-        gmail.send_email(
-            to=my_email,
-            subject=f"EA: event not found — {topic}",
-            body=(
-                f"EA could not find a calendar event matching '{topic}'.\n"
-                "Check the event title and time, then try again."
-            ),
-            thread_id=thread_id,
-        )
-        gmail.apply_label(thread_id, "ea-notified")
-        return "notified-not-found"
+        return _handle_event_not_found(gmail, my_email, thread_id, topic)
 
     if isinstance(match, list):
-        lines = "\n".join(
-            f"  • {ev.get('summary', '?')}  —  "
-            f"{(ev.get('start') or {}).get('dateTime', '?')}"
-            for ev in match
-        )
-        gmail.send_email(
-            to=my_email,
-            subject=f"EA: ambiguous reschedule — {topic}",
-            body=(
-                f"EA found multiple events matching '{topic}':\n\n{lines}\n\n"
-                "Please be more specific (include the exact time or full title)."
-            ),
-            thread_id=thread_id,
-        )
-        gmail.apply_label(thread_id, "ea-notified")
-        return "notified-ambiguous"
+        return _handle_event_ambiguous(gmail, my_email, thread_id, topic, match, "reschedule")
 
     # --- resolve new time ---
     new_times = parsed.get("new_proposed_times") or []
@@ -972,14 +949,7 @@ def handle_reschedule_result(
     try:
         calendar.update_event(event_id, new_start.isoformat(), new_end.isoformat())
     except Exception as e:
-        gmail.send_email(
-            to=my_email,
-            subject=f"EA: calendar error — {subject}",
-            body=f"EA tried to reschedule '{summary}' but the calendar API returned an error:\n\n{e}",
-            thread_id=thread_id,
-        )
-        gmail.apply_label(thread_id, "ea-notified")
-        return "calendar-error"
+        return _send_calendar_error(gmail, my_email, thread_id, subject, f"reschedule '{summary}'", e)
 
     attendee_tz = parsed.get("timezone")
     slot_desc = _local_slot_desc(new_start, new_end, config, attendee_tz)
@@ -1010,7 +980,7 @@ def _format_slot_suggestions(
     show_both = bool(attendee_tz and attendee_tz != owner_tz)
     try:
         primary_tz = ZoneInfo(attendee_tz if show_both else owner_tz)
-    except Exception:
+    except ZoneInfoNotFoundError:
         primary_tz = ZoneInfo(owner_tz)
         show_both = False
 
@@ -1023,11 +993,7 @@ def _format_slot_suggestions(
 
         p_start = start.astimezone(primary_tz)
         p_end   = end.astimezone(primary_tz)
-        line = (
-            p_start.strftime("%A %b %d, %I:%M") +
-            p_end.strftime("–%I:%M %p ") +
-            p_start.strftime("%Z")
-        )
+        line = _fmt_range(p_start, p_end)
         if show_both:
             o_start = start.astimezone(owner_tz_obj)
             o_end   = end.astimezone(owner_tz_obj)

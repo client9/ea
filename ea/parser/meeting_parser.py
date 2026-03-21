@@ -5,11 +5,12 @@ Core module for extracting structured details from meeting requests
 and calendar blocking commands using the Claude API.
 """
 
-import os
-import re
 import json
+import os
+
 import anthropic
 
+from ea.llm_util import strip_json_fences
 from ea.network import call_with_retry
 
 SYSTEM_PROMPT = """You are an assistant that parses five types of input:
@@ -151,10 +152,7 @@ def parse_meeting_request(text: str, tz_name: str = "UTC") -> dict:
     raw = message.content[0].text.strip()
 
     # Strip markdown code fences the model occasionally adds despite instructions.
-    if raw.startswith("```"):
-        raw = re.sub(r'^```(?:json)?\s*', '', raw)
-        raw = re.sub(r'\s*```\s*$', '', raw)
-        raw = raw.strip()
+    raw = strip_json_fences(raw)
 
     try:
         parsed = json.loads(raw)

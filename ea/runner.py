@@ -11,6 +11,7 @@ released automatically when the process exits, even on crash.
 """
 
 import fcntl
+import os
 import time as _time
 from pathlib import Path
 
@@ -28,7 +29,6 @@ def _acquire_lock(path: str):
     except BlockingIOError:
         f.close()
         return None
-    import os
     f.write(str(os.getpid()))
     f.flush()
     return f
@@ -90,7 +90,7 @@ def run_once(
             calendar,
             state,
             config,
-            confirm_eval_fn=lambda text, entry: classify_confirmation_reply(text, entry, config),
+            confirm_eval_fn=lambda text, entry: classify_confirmation_reply(text, entry, config, calendar),
             external_reply_fn=lambda text, entry: classify_external_reply(text, entry, config),
             dry_run=dry_run,
         )

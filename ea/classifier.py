@@ -12,10 +12,10 @@ tests use injected lambdas instead.
 
 import json
 import os
-import re
 
 import anthropic
 
+from ea.llm_util import strip_json_fences
 from ea.network import call_with_retry
 from ea.scheduler import ScheduleResult, evaluate_parsed
 
@@ -60,6 +60,7 @@ def classify_confirmation_reply(
     reply_text: str,
     entry: dict,
     config: dict,
+    calendar=None,
 ) -> ScheduleResult:
     """
     Parse the user's reply to a pending_confirmation email and return a
@@ -71,19 +72,14 @@ def classify_confirmation_reply(
     my_email = config["user"]["email"]
     sr = entry.get("schedule_result", {})
 
-    raw = call_with_retry(
+    raw = strip_json_fences(call_with_retry(
         lambda: _client().messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=500,
             system=_CONFIRM_SYSTEM,
             messages=[{"role": "user", "content": reply_text}],
         )
-    ).content[0].text.strip()
-
-    if raw.startswith("```"):
-        raw = re.sub(r'^```(?:json)?\s*', '', raw)
-        raw = re.sub(r'\s*```\s*$', '', raw)
-        raw = raw.strip()
+    ).content[0].text.strip())
 
     try:
         classification = json.loads(raw)
@@ -137,7 +133,7 @@ def classify_confirmation_reply(
         working_hours=schedule.get("working_hours", {}),
         preferred_hours=schedule.get("preferred_hours", {}),
         timezone=schedule.get("timezone", "UTC"),
-        calendar=None,   # caller must pass calendar separately if needed
+        calendar=calendar,
         my_email=my_email,
     )
 
@@ -181,24 +177,17 @@ def classify_external_reply(
     """
     suggested_slots = entry.get("suggested_slots", [])
 
-    context = f"Suggested slots:\n"
-    for i, slot in enumerate(suggested_slots):
-        context += f"  {i}: {slot['start']} – {slot['end']}\n"
-    context += f"\nTheir reply:\n{reply_text}"
+    slot_lines = "\n".join(f"  {i}: {slot['start']} – {slot['end']}" for i, slot in enumerate(suggested_slots))
+    context = f"Suggested slots:\n{slot_lines}\n\nTheir reply:\n{reply_text}"
 
-    raw = call_with_retry(
+    raw = strip_json_fences(call_with_retry(
         lambda: _client().messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=300,
             system=_EXTERNAL_SYSTEM,
             messages=[{"role": "user", "content": context}],
         )
-    ).content[0].text.strip()
-
-    if raw.startswith("```"):
-        raw = re.sub(r'^```(?:json)?\s*', '', raw)
-        raw = re.sub(r'\s*```\s*$', '', raw)
-        raw = raw.strip()
+    ).content[0].text.strip())
 
     try:
         classification = json.loads(raw)
