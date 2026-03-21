@@ -111,6 +111,31 @@ def run_once(
             log.info("Poll cycle complete — %s", " ".join(parts))
         else:
             log.info("Poll cycle complete — nothing to process")
+
+        # Daily digest — send once per day when send_time is reached
+        if not dry_run:
+            import datetime as _dt
+
+            from ea.digest import (
+                already_sent_today,
+                build_digest,
+                mark_sent_today,
+                should_send_digest,
+            )
+            from zoneinfo import ZoneInfo
+
+            tz_name = config.get("schedule", {}).get("timezone", "UTC")
+            now_local = _dt.datetime.now(ZoneInfo(tz_name))
+            today_str = now_local.date().isoformat()
+            if should_send_digest(config, now_local) and not already_sent_today(
+                today_str
+            ):
+                my_email = config.get("user", {}).get("email", "")
+                subject, body = build_digest(config, calendar, state)
+                gmail.send_email(to=my_email, subject=subject, body=body)
+                mark_sent_today(today_str)
+                log.info("Daily digest sent", extra={"date": today_str})
+
         return summary
     except Exception as exc:
         from ea.network import is_transient_error

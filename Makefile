@@ -11,6 +11,9 @@ format:
 	ruff format
 
 
+digest:
+	python3 ea.py digest
+
 status:
-	 python3 ea.py status
+	python3 ea.py status
 

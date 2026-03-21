@@ -211,16 +211,33 @@ used for the parser and classifier.
 
 ## Medium Impact — Quality of Life
 
-### 8. Daily / weekly digest
-A scheduled email (not triggered by a thread) summarizing upcoming meetings.
-Needs a new entry point — either a cron trigger or a CLI command:
+### 8. Daily digest ✅ DONE
+An automated daily email (not triggered by a thread) summarizing today's
+calendar events and pending EA state entries.
 
+**Implementation:**
+- `ea/digest.py` — all digest logic: `should_send_digest`, `already_sent_today`,
+  `mark_sent_today`, `get_today_window`, `format_event_line`, `build_digest`
+- `ea/runner.py` — digest check runs inside `run_once()` after `run_poll()`,
+  inside the existing `.state.lock`; sends once per day when `send_time` is reached
+- `ea.py digest` — CLI subcommand prints body to stdout (preview only, no email)
+- `digest_sent.json` — dedup file; stores `{"last_sent": "YYYY-MM-DD"}`
+
+**Config** (`config.toml`):
+```toml
+[digest]
+days      = ["monday", "tuesday", "wednesday", "thursday", "friday"]
+send_time = "08:00"   # local time; defaults to "08:00" if omitted
 ```
-python ea.py digest          # send today's agenda
-python ea.py digest --week   # send this week's agenda
+Omit `[digest]` or set `days = []` to disable. Automated email fires once per
+day when `now_local.time() >= send_time` and not yet sent today.
+
+**CLI (stdout only, no email):**
+```
+python ea.py digest          # print today's agenda to console
 ```
 
-Reads from `CalendarClient.list_events` and formats a plain-text summary.
+**Weekly digest** — deferred; unclear if useful.
 
 ### 8. Timezone-aware invite bodies ✅ DONE
 When the attendee's timezone (from `parsed["timezone"]`) differs from the

@@ -213,10 +213,7 @@ def _run_status():
 
 def _run_dismiss(thread_id: str, credentials_file=None, token_file=None):
     from ea.state import StateStore
-    from ea.config import load_config
     from ea.runner import _acquire_lock, _release_lock, LOCK_FILE
-
-    config = load_config()
 
     lock_f = _acquire_lock(LOCK_FILE)
     if lock_f is None:
@@ -312,6 +309,12 @@ def main():
     )
     _add_auth_args(dismiss_parser)
 
+    # --- digest subcommand ---
+    digest_parser = subparsers.add_parser(
+        "digest", help="Print today's calendar digest to stdout"
+    )
+    _add_auth_args(digest_parser)
+
     # --- reset subcommand ---
     subparsers.add_parser("reset", help="Clear state.json to start fresh")
 
@@ -381,6 +384,21 @@ def main():
             credentials_file=getattr(args, "credentials", None),
             token_file=getattr(args, "token", None),
         )
+
+    elif args.command == "digest":
+        from ea.auth import load_creds
+        from ea.calendar import CalendarClient
+        from ea.config import load_config
+        from ea.digest import build_digest
+        from ea.state import StateStore
+
+        config = load_config()
+        creds = load_creds(
+            credentials_file=getattr(args, "credentials", None),
+            token_file=getattr(args, "token", None),
+        )
+        _, body = build_digest(config, CalendarClient(creds=creds), StateStore())
+        print(body)
 
     elif args.command == "reset":
         from ea.state import DEFAULT_STATE_FILE

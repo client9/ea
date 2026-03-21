@@ -358,7 +358,7 @@ class TestPass1Inbound:
                 "type": "pending_confirmation",
                 "confirmation_thread_id": "conf-1",
                 "created_at": "2026-03-19T14:00:00+00:00",
-                "expires_at": "2026-03-21T14:00:00+00:00",
+                "expires_at": "2099-01-01T00:00:00+00:00",
                 "confirmation_messages_seen": 1,
                 "schedule_result": {
                     "outcome": "needs_confirmation",
@@ -671,7 +671,7 @@ class TestPass3OutboundReplies:
             {
                 "type": "pending_external_reply",
                 "created_at": "2026-03-19T14:00:00+00:00",
-                "expires_at": "2026-03-21T14:00:00+00:00",
+                "expires_at": "2099-01-01T00:00:00+00:00",
                 "original_messages_seen": 2,  # 2 messages: original + EA's suggestion
                 "topic": "Coffee chat",
                 "recipient": SARAH,

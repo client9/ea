@@ -216,3 +216,6 @@ config.toml
 .state.lock
 state.json
 ea-launchd.err
+digest_sent.json
+.claude
+

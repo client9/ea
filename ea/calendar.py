@@ -213,13 +213,14 @@ class CalendarClient:
                 if not raw:
                     continue
                 try:
-                    # All-day events have date-only strings; treat them as midnight UTC
                     if "T" not in raw:
-                        from datetime import timezone as _tz
-
-                        ev_start = datetime.fromisoformat(raw).replace(tzinfo=_tz.utc)
-                    else:
-                        ev_start = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                        # All-day event: compare by date — include if date falls
+                        # within the query window's date range (mirrors Google API behaviour)
+                        ev_date = datetime.fromisoformat(raw).date()
+                        if t_min.date() <= ev_date < t_max.date():
+                            result.append(ev)
+                        continue
+                    ev_start = datetime.fromisoformat(raw.replace("Z", "+00:00"))
                 except ValueError:
                     continue
                 if t_min <= ev_start < t_max:

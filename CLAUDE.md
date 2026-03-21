@@ -25,6 +25,7 @@ python ea.py poll --quiet     # suppress all stdout (for launchd/cron — logs t
 python ea.py run              # loop continuously (interval from config.toml)
 python ea.py status           # show pending state entries (topic, attendees, expiry)
 python ea.py dismiss <id>     # dismiss a pending entry by thread ID (clears state, labels thread)
+python ea.py digest           # print today's calendar digest to stdout (preview, no email)
 python ea.py reset            # clear state.json to start fresh
 
 # Google auth
@@ -94,7 +95,8 @@ default     = 30
 - **`ea/network.py`** — Retry and timeout utility. `configure(attempts, base_delay, cap, api_timeout)` sets module-level policy: `run_loop()` uses 3 attempts with backoff; `run_once()` (cron/poll) uses 1 attempt (fail fast). `call_with_retry(fn)` wraps any callable — timeout errors retry immediately (no backoff); connection errors retry with exponential backoff. `get_api_timeout()` returns the configured timeout for Anthropic client construction. `socket.setdefaulttimeout()` is set automatically to cover Google's httplib2 calls.
 - **`ea/poll.py`** — `run_poll(gmail, calendar, state, config, ...)` runs one full three-pass cycle. All dependencies are injected (testable without real APIs). Each thread's processing is wrapped in try/except — a crash on one thread logs the error and continues rather than aborting the cycle. `_ALLOWED_INTENTS` gates Pass 1 dispatch — unknown intents are logged as WARNING ("possible prompt injection") and treated as parse errors (SEC-2).
 - **`ea/state.py`** — `StateStore(path)`. In-memory dict backed by `state.json`. Only threads actively awaiting a reply are stored; completed threads are removed and marked with Gmail labels. Pass `path=None` for in-memory-only (tests).
-- **`ea/runner.py`** — `run_once()` wires live clients, calls `network.configure(attempts=1, api_timeout=timeout_seconds)` (no retry in cron mode), and calls `run_poll()`. Acquires an exclusive `fcntl` lock on `.state.lock` before polling; logs a warning and returns immediately if already locked. `run_loop()` calls `network.configure(attempts=3, cap=poll_interval_seconds)` for retry with backoff, then loops `run_once()` at `poll_interval_seconds`.
+- **`ea/runner.py`** — `run_once()` wires live clients, calls `network.configure(attempts=1, api_timeout=timeout_seconds)` (no retry in cron mode), and calls `run_poll()`. Acquires an exclusive `fcntl` lock on `.state.lock` before polling; logs a warning and returns immediately if already locked. After `run_poll()`, checks digest conditions and sends the daily digest email if due (unless `--dry-run`). `run_loop()` calls `network.configure(attempts=3, cap=poll_interval_seconds)` for retry with backoff, then loops `run_once()` at `poll_interval_seconds`.
+- **`ea/digest.py`** — Daily digest. `should_send_digest(config, now_local)` checks `[digest]` section, configured days, and `send_time` (default `"08:00"` local). `already_sent_today` / `mark_sent_today` use `digest_sent.json` for deduplication. `build_digest(config, calendar, state)` returns `(subject, body)` with today's events (sorted, all-day first) and pending state entries. `get_today_window(tz_name)` returns the UTC midnight-to-midnight window for today in the user's timezone. The `digest` CLI subcommand prints the body to stdout (preview only — no email sent).
 
 ## Poll loop (three passes)
 
