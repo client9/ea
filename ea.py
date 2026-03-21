@@ -50,6 +50,8 @@ def print_result(text: str, result: dict, source_label: str = ""):
         print("=" * width + "\n")
         return
 
+    print(f"  🎯 INTENT:      {intent}")
+
     if intent == "block_time":
         print(f"  🗓️  BLOCK:       {result.get('topic', 'N/A')}")
         print(
@@ -60,7 +62,7 @@ def print_result(text: str, result: dict, source_label: str = ""):
         print("=" * width + "\n")
         return
 
-    # meeting_request
+    # meeting_request / suggest_times / etc.
     print(f"  📅 TOPIC:       {result.get('topic', 'N/A')}")
     print(f"  ⏱️  DURATION:    {result.get('duration_minutes', 'Not specified')} min")
     print(f"  🌍 TIMEZONE:    {result.get('timezone', 'Not specified')}")
@@ -84,9 +86,88 @@ def print_result(text: str, result: dict, source_label: str = ""):
     print("=" * width + "\n")
 
 
+def _print_suggest_preview(result: dict, config: dict | None = None):
+    """Show what the suggest_times email would look like using the live calendar."""
+    from ea.auth import load_creds
+    from ea.calendar import CalendarClient
+    from ea.scheduler import find_slots
+    from ea.responder import _format_slot_suggestions
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    width = 60
+    print("\n" + "-" * width)
+    print("  EMAIL PREVIEW (based on your calendar)")
+    print("-" * width)
+
+    try:
+        if config is None:
+            from ea.config import load_config
+
+            config = load_config()
+        creds = load_creds()
+        calendar = CalendarClient(creds=creds)
+    except Exception as e:
+        print(f"  (skipped — could not load calendar: {e})")
+        print("-" * width + "\n")
+        return
+
+    schedule = config.get("schedule", {})
+    tz_name = schedule.get("timezone", "UTC")
+    duration_minutes = result.get("duration_minutes") or 30
+    attendees_parsed = result.get("attendees") or []
+    my_email = config["user"]["email"]
+    all_attendees = [my_email] + [a for a in attendees_parsed if a != my_email]
+
+    restrict_to_date = None
+    proposed_times = result.get("proposed_times") or []
+    if proposed_times:
+        raw_dt = (proposed_times[0].get("datetimes") or [None])[0]
+        if raw_dt:
+            restrict_to_date = (
+                datetime.fromisoformat(raw_dt).astimezone(ZoneInfo(tz_name)).date()
+            )
+
+    try:
+        slots = find_slots(
+            attendees=all_attendees,
+            duration_minutes=duration_minutes,
+            working_hours=schedule.get("working_hours", {}),
+            preferred_hours=schedule.get("preferred_hours", {}),
+            tz_name=tz_name,
+            calendar=calendar,
+            restrict_to_date=restrict_to_date,
+        )
+    except Exception as e:
+        print(f"  (skipped — calendar lookup failed: {e})")
+        print("-" * width + "\n")
+        return
+
+    if not slots:
+        print("  No available slots found in the next 7 days.")
+        print("-" * width + "\n")
+        return
+
+    body = _format_slot_suggestions(
+        slots, owner_tz=tz_name, attendee_tz=result.get("timezone")
+    )
+    print(body)
+    print("-" * width + "\n")
+
+
 def run_text(text: str, label: str = ""):
-    result = parse_meeting_request(text)
+    try:
+        from ea.config import load_config
+
+        config = load_config()
+        tz_name = config.get("schedule", {}).get("timezone", "UTC")
+    except Exception:
+        config = None
+        tz_name = "UTC"
+    result = parse_meeting_request(text, tz_name=tz_name)
     print_result(text, result, source_label=label or text[:60])
+    if result.get("intent") == "suggest_times":
+        _print_suggest_preview(result, config=config)
 
 
 def run_file(filepath: str):
@@ -255,8 +336,48 @@ def _run_dismiss(thread_id: str, credentials_file=None, token_file=None):
         print(f"Note: no cancellation was sent to {', '.join(attendees)}.")
 
 
+def print_help():
+    """Print nicely formatted help."""
+    lines = [
+        "",
+        "  EA Assistant — AI-powered scheduling via email",
+        "",
+        "  DAILY USE",
+        "    poll                  Run one poll cycle",
+        "    poll --dry-run        Show what would happen without sending anything",
+        "    poll --quiet          Suppress stdout (for launchd/cron)",
+        "    run                   Loop continuously (interval from config.toml)",
+        "    status                Show pending entries (topic, attendees, expiry)",
+        "    dismiss <id>          Dismiss a pending entry by thread ID",
+        "    digest                Print today's calendar digest",
+        '    digest <date>         Digest for a specific date (e.g. "tomorrow")',
+        "",
+        "  SETUP",
+        "    auth                  Run the Google OAuth2 browser flow",
+        "    auth --check          Show current auth status",
+        "",
+        "  DEBUGGING",
+        '    parse "<text>"        Parse a meeting request from text',
+        "    parse --file FILE      Parse from a file",
+        "    testdata              Parse all .txt files in testdata/",
+        "    reset                 Clear state.json to start fresh",
+        "",
+        "  SHARED OPTIONS  (auth, poll, run, dismiss, digest)",
+        "    --credentials FILE    Path to credentials JSON (overrides config.toml)",
+        "    --token FILE          Path to token.json (overrides config.toml)",
+        "",
+    ]
+    print("\n".join(lines))
+
+
 def main():
-    parser = argparse.ArgumentParser(description="EA Assistant — scheduling via email")
+    parser = argparse.ArgumentParser(
+        description="EA Assistant — scheduling via email",
+        add_help=False,
+    )
+    parser.add_argument(
+        "-h", "--help", action="store_true", help="Show this help message"
+    )
     subparsers = parser.add_subparsers(dest="command")
 
     def _add_auth_args(p):
@@ -324,6 +445,9 @@ def main():
     # --- reset subcommand ---
     subparsers.add_parser("reset", help="Clear state.json to start fresh")
 
+    # --- help subcommand ---
+    subparsers.add_parser("help", help="Show this help message")
+
     # --- Legacy positional / file commands (parser debugging) ---
     subparsers.add_parser("testdata", help="Parse all files in testdata/")
     file_p = subparsers.add_parser(
@@ -334,9 +458,13 @@ def main():
 
     args = parser.parse_args()
 
+    if args.help or args.command in (None, "help"):
+        print_help()
+        sys.exit(0)
+
     # auth / poll / run don't need ANTHROPIC_API_KEY at startup —
     # but parse commands do.
-    if args.command in (None, "parse", "testdata"):
+    if args.command in ("parse", "testdata"):
         if not os.environ.get("ANTHROPIC_API_KEY"):
             print("ANTHROPIC_API_KEY environment variable is not set.")
             sys.exit(1)
@@ -445,7 +573,7 @@ def main():
             file_p.print_help()
 
     else:
-        parser.print_help()
+        print_help()
 
 
 if __name__ == "__main__":
