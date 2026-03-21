@@ -107,7 +107,7 @@ def format_event_line(event: dict, tz_name: str, my_email: str) -> str:
     """
     from ea.responder import _fmt_range
 
-    summary = event.get("summary") or "(no title)"
+    summary = (event.get("summary") or "(no title)").strip()
 
     # All-day events have a "date" key instead of "dateTime"
     start_raw = event.get("start", {})
