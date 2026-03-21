@@ -200,6 +200,24 @@ def run_poll(
             intent = None
             topic  = subject
             action = "error"
+            if not dry_run:
+                try:
+                    gmail.send_email(
+                        to=my_email,
+                        subject=f"EA: error processing — {subject}",
+                        body=(
+                            f"EA found an EA: command but hit an error while processing it:\n\n"
+                            f"{exc}\n\nCheck ea.log for details."
+                        ),
+                        thread_id=thread.id,
+                    )
+                    gmail.apply_label(thread.id, "ea-notified")
+                    action = "notified-error"
+                except Exception as notify_exc:
+                    _log.error(
+                        "Failed to send error notification for thread %s: %s",
+                        thread.id, notify_exc,
+                    )
 
         _log.info(
             "pass1 %s: %s (intent=%s topic=%r subject=%r)",

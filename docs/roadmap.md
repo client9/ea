@@ -1199,6 +1199,33 @@ A separate daily trigger (cron job or Cloud Scheduler) calls
 endpoint required, minimal infrastructure). Add `pubsub_push` only when
 deploying to Cloud Run.
 
+**Note:** implementing OP-13 also fixes the "Send and Archive" limitation
+described in OP-14 below — the `users.history.list()` approach sees all
+mailbox changes, not just the current inbox state.
+
+### OP-14. Inbox-only constraint and "Send and Archive" limitation
+EA's Pass 1 queries `in:inbox` exclusively. This is intentional — it limits
+scope to active threads and avoids reprocessing old mail — but it has one
+practical consequence worth documenting:
+
+**If Gmail's "Send and Archive" setting is enabled** (or the owner manually
+archives a thread immediately after replying), the thread leaves the inbox
+before the next poll cycle. EA never sees the `EA:` command in the reply,
+no action is taken, and no notification is sent. The thread simply does not
+appear in `list_threads`.
+
+**Workaround (current):** Ensure the thread remains in your inbox until after
+the next poll cycle completes. In Gmail settings, disable "Send and Archive"
+(`Settings → General → Send and Archive → Hide "Send & Archive" button`), or
+wait for the poll to run before archiving.
+
+**Correct fix (future, via OP-13):** Switch Pass 1 from a full inbox scan to
+an incremental `users.history.list()` scan keyed on the last-seen `historyId`.
+The history API records every mailbox change — including sent messages — so
+`EA:` commands in outgoing replies are captured regardless of whether the
+thread is still in the inbox when the poll runs. This is the right long-term
+solution and is a natural part of the OP-13 push notification work.
+
 ---
 
 ## Security
