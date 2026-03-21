@@ -547,11 +547,6 @@ Created events currently have no description body. Populate it with:
 
 Small addition to `create_event` calls in `responder.py`.
 
-### 15. Decline on behalf
-When the owner writes "EA: decline" on an inbound thread, send a polite
-decline email to the sender and apply `ea-cancelled`. New intent value
-`decline` in the parser, new handler in `responder.py`.
-
 ### 16. Hold / tentative blocks
 "EA: hold Thursday 2-4pm for prep" — creates an event with
 `transparency: "transparent"` so the owner sees it but it doesn't block
@@ -1412,3 +1407,45 @@ cryptographically verified as originating from `example.com`.
 #1  recurring meetings    — moderate complexity
 #9  group scheduling      — extends existing freebusy logic
 ```
+
+
+---
+
+## Language detection for multilingual scheduling
+
+**Context:** `dateparser` (the current date-parsing backend) supports 200+
+languages. Today the normalizer is configured with a static `languages = ["en"]`
+list in `config.toml`. Users who receive meeting requests in other languages
+would benefit from automatic language detection so dateparser can parse time
+phrases correctly regardless of the email's language.
+
+**Proposed approach:**
+
+1. Add a config flag:
+   ```toml
+   [parser]
+   language_detection = true   # auto-detect; false = use languages list only
+   languages = ["en"]          # fallback / hint list when detection is off
+   ```
+
+2. When `language_detection = true`, detect the language of the raw email thread
+   text (available in `poll.py` as `thread_text`) before calling
+   `parse_meeting_request`. Pass the detected language code(s) to
+   `DateparserNormalizer` for that request.
+
+3. Candidate detection library: [`langdetect`](https://pypi.org/project/langdetect/)
+   (port of Google's language-detection library, ~1 MB, no network calls).
+   Alternative: [`lingua-language-detector`](https://pypi.org/project/lingua-language-detector/)
+   (more accurate on short texts, larger install).
+
+**Implementation notes:**
+- Detection runs on the full thread text, not just the normalized phrases (which
+  are already in English since Claude produces them). The detected language only
+  affects how dateparser interprets any phrases that slip through as non-English.
+- `langdetect` is non-deterministic by default; call `DetectorFactory.seed = 0`
+  for reproducibility in tests.
+- If detection confidence is low or the library throws, fall back to the
+  configured `languages` list silently.
+- The injection point is `DateparserNormalizer.__init__` — it already accepts a
+  `languages` list, so no interface changes are needed beyond the detection call
+  at the `run_poll` / `runner.py` level.
