@@ -155,62 +155,51 @@ Rules:
 """
 
 
-def _normalized_to_dates(phrases: list[str], tz_name: str, now) -> list[str]:
-    """
-    Convert plain-English date phrases (e.g. 'Next Monday') to local date strings
-    (YYYY-MM-DD) using parsedatetime. Used for all-day events where time is irrelevant.
-    """
-    import parsedatetime
-    from zoneinfo import ZoneInfo
-
-    tz = ZoneInfo(tz_name)
-    cal = parsedatetime.Calendar()
+def _normalized_to_dates(
+    phrases: list[str], tz_name: str, now, normalizer
+) -> list[str]:
+    """Convert plain-English date phrases (e.g. 'Next Monday') to local date strings
+    (YYYY-MM-DD). Used for all-day events where time is irrelevant."""
     results = []
     for phrase in phrases:
-        dt, status = cal.parseDT(phrase, sourceTime=now, tzinfo=tz)
-        if status:
-            results.append(dt.astimezone(tz).date().isoformat())
+        d = normalizer.parse_date(phrase, tz_name, now)
+        if d is not None:
+            results.append(d.isoformat())
     return results
 
 
-def _normalized_to_utc(phrases: list[str], tz_name: str, now) -> list[str]:
-    """
-    Convert plain-English time phrases (e.g. 'Next Friday at 1pm') to UTC
-    ISO 8601 strings using parsedatetime.
-
-    parsedatetime handles 'next', 'this', 'tomorrow', etc. correctly when
-    given a reference time (sourceTime=now). The tzinfo argument makes the
-    returned datetime timezone-aware, and ZoneInfo applies correct DST offsets.
-    """
-    import parsedatetime
+def _normalized_to_utc(phrases: list[str], tz_name: str, now, normalizer) -> list[str]:
+    """Convert plain-English time phrases (e.g. 'Next Friday at 1pm') to UTC
+    ISO 8601 strings."""
     from datetime import timezone
-    from zoneinfo import ZoneInfo
 
-    tz = ZoneInfo(tz_name)
-    cal = parsedatetime.Calendar()
     results = []
     for phrase in phrases:
-        dt, status = cal.parseDT(phrase, sourceTime=now, tzinfo=tz)
-        if status:
+        dt = normalizer.parse_datetime(phrase, tz_name, now)
+        if dt is not None:
             results.append(dt.astimezone(timezone.utc).isoformat())
     return results
 
 
-def parse_meeting_request(text: str, tz_name: str = "UTC") -> dict:
+def parse_meeting_request(text: str, tz_name: str = "UTC", normalizer=None) -> dict:
     """
     Parse a meeting request or calendar block command from free-form text.
 
     Args:
-        text:    The email thread or message text to parse.
-        tz_name: The user's local timezone (IANA name, e.g. 'America/Los_Angeles').
-                 Used so Claude can decompose time expressions and dateparser can
-                 convert them to UTC with correct DST handling.
+        text:       The email thread or message text to parse.
+        tz_name:    The user's local timezone (IANA name, e.g. 'America/Los_Angeles').
+        normalizer: DateNormalizer instance for phrase→datetime conversion.
+                    Defaults to ParsedatetimeNormalizer if not provided.
 
     Returns:
         A dictionary with structured intent and scheduling details.
         proposed_times[*].datetimes and new_proposed_times[*].datetimes contain
         UTC ISO 8601 strings (the normalized→UTC conversion is invisible to callers).
     """
+    if normalizer is None:
+        from ea.parser.date_normalizer import DateparserNormalizer
+
+        normalizer = DateparserNormalizer()
     import datetime
     from zoneinfo import ZoneInfo
 
@@ -264,12 +253,18 @@ def parse_meeting_request(text: str, tz_name: str = "UTC") -> dict:
     for entry in parsed.get("proposed_times") or []:
         normalized = entry.pop("normalized", None) or []
         if all_day:
-            entry["datetimes"] = _normalized_to_dates(normalized, tz_name, now_local)
+            entry["datetimes"] = _normalized_to_dates(
+                normalized, tz_name, now_local, normalizer
+            )
         else:
-            entry["datetimes"] = _normalized_to_utc(normalized, tz_name, now_local)
+            entry["datetimes"] = _normalized_to_utc(
+                normalized, tz_name, now_local, normalizer
+            )
 
     for entry in parsed.get("new_proposed_times") or []:
         normalized = entry.pop("normalized", None) or []
-        entry["datetimes"] = _normalized_to_utc(normalized, tz_name, now_local)
+        entry["datetimes"] = _normalized_to_utc(
+            normalized, tz_name, now_local, normalizer
+        )
 
     return parsed

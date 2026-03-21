@@ -311,7 +311,13 @@ def main():
 
     # --- digest subcommand ---
     digest_parser = subparsers.add_parser(
-        "digest", help="Print today's calendar digest to stdout"
+        "digest", help="Print a calendar digest to stdout (default: today)"
+    )
+    digest_parser.add_argument(
+        "date",
+        nargs="?",
+        metavar="DATE",
+        help='Date to generate digest for, e.g. "tomorrow", "next monday", "2026-04-01"',
     )
     _add_auth_args(digest_parser)
 
@@ -393,11 +399,28 @@ def main():
         from ea.state import StateStore
 
         config = load_config()
+
+        for_date = None
+        if args.date:
+            import datetime as _dt
+
+            from ea.parser.date_normalizer import make_normalizer
+
+            tz_name = config.get("schedule", {}).get("timezone", "UTC")
+            normalizer = make_normalizer(config)
+            now = _dt.datetime.now(_dt.timezone.utc)
+            for_date = normalizer.parse_date(args.date, tz_name, now)
+            if for_date is None:
+                print(f"Could not parse date: {args.date!r}", file=sys.stderr)
+                sys.exit(1)
+
         creds = load_creds(
             credentials_file=getattr(args, "credentials", None),
             token_file=getattr(args, "token", None),
         )
-        _, body = build_digest(config, CalendarClient(creds=creds), StateStore())
+        _, body = build_digest(
+            config, CalendarClient(creds=creds), StateStore(), for_date=for_date
+        )
         print(body)
 
     elif args.command == "reset":

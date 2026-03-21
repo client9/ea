@@ -87,12 +87,22 @@ def run_once(
         calendar = CalendarClient(creds=creds)
         state = StateStore()
 
+        from ea.parser.date_normalizer import make_normalizer
+        from ea.parser.meeting_parser import parse_meeting_request
+
+        tz_name = config.get("schedule", {}).get("timezone", "UTC")
+        normalizer = make_normalizer(config)
+
+        def _parser(text):
+            return parse_meeting_request(text, tz_name=tz_name, normalizer=normalizer)
+
         log.info("Poll cycle started")
         summary = run_poll(
             gmail,
             calendar,
             state,
             config,
+            parser=_parser,
             confirm_eval_fn=lambda text, entry: classify_confirmation_reply(
                 text, entry, config, calendar
             ),

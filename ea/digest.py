@@ -13,7 +13,7 @@ to stdout (no email sent).
 """
 
 import json
-from datetime import datetime, time, timezone
+from datetime import date, datetime, time, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -78,11 +78,15 @@ def mark_sent_today(today_str: str, path: str = DIGEST_STATE_FILE) -> None:
 # ---------------------------------------------------------------------------
 
 
-def get_today_window(tz_name: str) -> tuple[datetime, datetime]:
-    """Return (midnight_utc, next_midnight_utc) for today in the user's timezone."""
+def get_today_window(
+    tz_name: str, for_date: date | None = None
+) -> tuple[datetime, datetime]:
+    """Return (midnight_utc, next_midnight_utc) for `for_date` (default: today)
+    in the user's timezone."""
     tz = ZoneInfo(tz_name)
-    now_local = datetime.now(tz)
-    today_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    if for_date is None:
+        for_date = datetime.now(tz).date()
+    today_local = datetime(for_date.year, for_date.month, for_date.day, tzinfo=tz)
     tomorrow_local = today_local.replace(day=today_local.day + 1)
     return (
         today_local.astimezone(timezone.utc),
@@ -148,24 +152,29 @@ def _expiry_str(expires_raw: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def build_digest(config: dict, calendar, state) -> tuple[str, str]:
+def build_digest(
+    config: dict, calendar, state, for_date: date | None = None
+) -> tuple[str, str]:
     """Return (subject, body) for the daily digest.
 
-    calendar: CalendarClient (live or fixture)
-    state:    StateStore
+    calendar:  CalendarClient (live or fixture)
+    state:     StateStore
+    for_date:  date to generate digest for; defaults to today in user's timezone
     """
     tz_name = config.get("schedule", {}).get("timezone", "UTC")
     my_email = config.get("user", {}).get("email", "")
 
     tz = ZoneInfo(tz_name)
-    now_local = datetime.now(tz)
-    date_heading = now_local.strftime("%A, %B %-d, %Y")
-    date_short = now_local.strftime("%A, %B %-d")
+    if for_date is None:
+        for_date = datetime.now(tz).date()
+    target_dt = datetime(for_date.year, for_date.month, for_date.day, tzinfo=tz)
+    date_heading = target_dt.strftime("%A, %B %-d, %Y")
+    date_short = target_dt.strftime("%A, %B %-d")
 
     subject = f"EA: Daily digest — {date_short}"
 
-    # --- Today's events ---
-    time_min, time_max = get_today_window(tz_name)
+    # --- Events for the target date ---
+    time_min, time_max = get_today_window(tz_name, for_date=for_date)
     events = calendar.list_events(time_min.isoformat(), time_max.isoformat())
 
     # Sort timed events by start time; all-day events first
