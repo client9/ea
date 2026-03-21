@@ -46,23 +46,46 @@ _ALLOWED_INTENTS = {
 }
 
 
-def _resolve_duration(parsed: dict, config: dict) -> dict:
-    """Fill in duration_minutes from config defaults when the parser returned null.
+def _resolve_defaults(parsed: dict, config: dict) -> dict:
+    """Fill in missing fields from config defaults and strip resolved ambiguities.
 
-    Checks [schedule.duration_defaults] for a key matching parsed["meeting_type"],
-    then falls back to the "default" key. If neither exists, returns parsed unchanged
-    (the scheduler will handle the missing duration via the ambiguous outcome).
+    1. duration_minutes: check [schedule.duration_defaults] by meeting_type, then "default".
+    2. topic: fall back to "Meeting" when the parser returned null/empty.
+
+    In both cases, any ambiguity string that mentions the now-resolved field is
+    removed from the ambiguities list so the scheduler doesn't block on it.
     """
-    if parsed.get("duration_minutes"):
+    updates: dict = {}
+    ambiguities = list(parsed.get("ambiguities") or [])
+
+    # --- duration ---
+    if not parsed.get("duration_minutes"):
+        defaults = config.get("schedule", {}).get("duration_defaults", {})
+        meeting_type = parsed.get("meeting_type")
+        duration = (meeting_type and defaults.get(meeting_type)) or defaults.get(
+            "default"
+        )
+        if duration:
+            updates["duration_minutes"] = duration
+            ambiguities = [a for a in ambiguities if "duration" not in a.lower()]
+
+    # --- topic ---
+    # Always strip topic-related ambiguities — if topic is absent, use "Meeting".
+    ambiguities = [
+        a
+        for a in ambiguities
+        if not any(w in a.lower() for w in ("purpose", "topic", "subject"))
+    ]
+    if not parsed.get("topic"):
+        updates["topic"] = "Meeting"
+
+    if not updates and ambiguities == list(parsed.get("ambiguities") or []):
         return parsed
-    defaults = config.get("schedule", {}).get("duration_defaults", {})
-    if not defaults:
-        return parsed
-    meeting_type = parsed.get("meeting_type")
-    duration = (meeting_type and defaults.get(meeting_type)) or defaults.get("default")
-    if duration:
-        return {**parsed, "duration_minutes": duration}
-    return parsed
+    return {**parsed, **updates, "ambiguities": ambiguities}
+
+
+# Keep the old name as an alias so any external callers aren't broken.
+_resolve_duration = _resolve_defaults
 
 
 def _item(thread_id, action, **extra) -> dict:
@@ -182,7 +205,7 @@ def run_poll(
                 action = f"dry-run-{intent or 'none'}"
             elif intent == "suggest_times":
                 action = handle_suggest_times_trigger(
-                    _resolve_duration(parsed, config),
+                    _resolve_defaults(parsed, config),
                     thread,
                     gmail,
                     calendar,
@@ -199,7 +222,7 @@ def run_poll(
                     )
                 else:
                     result = evaluate_parsed(
-                        parsed=_resolve_duration(parsed, config),
+                        parsed=_resolve_defaults(parsed, config),
                         working_hours=working_hours,
                         preferred_hours=preferred_hours,
                         timezone=timezone_name,
@@ -210,23 +233,42 @@ def run_poll(
                         result, thread, gmail, calendar, state, config
                     )
             elif intent == "meeting_request":
+                resolved = _resolve_defaults(parsed, config)
                 result = evaluate_parsed(
-                    parsed=_resolve_duration(parsed, config),
+                    parsed=resolved,
                     working_hours=working_hours,
                     preferred_hours=preferred_hours,
                     timezone=timezone_name,
                     calendar=calendar,
                     my_email=my_email,
                 )
-                action = handle_inbound_result(
-                    result,
-                    thread,
-                    gmail,
-                    calendar,
-                    state,
-                    config,
-                    find_slots_fn=find_slots_fn,
-                )
+                # Safety net: generic "book it" with no proposed times → suggest_times.
+                # The other party was asking about availability, not proposing a specific
+                # time, so find and send available slots rather than emailing "ambiguous".
+                if (
+                    result.outcome == "ambiguous"
+                    and parsed.get("times_explicitly_specified") is False
+                    and not (parsed.get("proposed_times") or [])
+                ):
+                    action = handle_suggest_times_trigger(
+                        {**resolved, "intent": "suggest_times"},
+                        thread,
+                        gmail,
+                        calendar,
+                        state,
+                        config,
+                        find_slots_fn=find_slots_fn,
+                    )
+                else:
+                    action = handle_inbound_result(
+                        result,
+                        thread,
+                        gmail,
+                        calendar,
+                        state,
+                        config,
+                        find_slots_fn=find_slots_fn,
+                    )
             elif intent in ("cancel_event", "reschedule"):
                 from ea.scheduler import find_matching_event
 

@@ -188,6 +188,235 @@ def run_file(filepath: str):
     run_text(text, label=path.name)
 
 
+def _build_sim_thread(messages: list[str], my_email: str, from_addr: str, subject: str):
+    """Build a GmailThread from a list of plain-text message bodies.
+
+    Messages alternate: external → owner → external → owner …
+    Exception: if the first message starts with 'EA:' it is treated as from
+    the owner (self-addressed command).
+    """
+    from ea.gmail import GmailMessage, GmailThread
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc).isoformat()
+    first_is_owner = messages and messages[0].strip().upper().startswith("EA:")
+
+    msgs = []
+    for i, body in enumerate(messages):
+        is_owner = (i % 2 == 1) if not first_is_owner else (i % 2 == 0)
+        sender = my_email if is_owner else from_addr
+        recipient = from_addr if is_owner else my_email
+        msgs.append(
+            GmailMessage(
+                id=f"sim-msg-{i}",
+                thread_id="sim-thread-1",
+                from_addr=sender,
+                to_addr=recipient,
+                subject=subject,
+                date=now,
+                body=body,
+            )
+        )
+    return GmailThread(id="sim-thread-1", messages=msgs)
+
+
+def _print_sim_thread(thread, my_email: str):
+    """Print the simulated thread so the user can see what EA will process."""
+    width = 60
+    print("\n" + "=" * width)
+    print("  SIMULATED THREAD")
+    print("=" * width)
+    for i, msg in enumerate(thread.messages):
+        role = "owner" if msg.from_addr.lower() == my_email.lower() else "external"
+        print(f"\n  [{i + 1}] From: {msg.from_addr}  ({role})")
+        print(f"      To:   {msg.to_addr}")
+        print(f"      Subj: {msg.subject}")
+        for line in msg.body.splitlines():
+            print(f"      {line}")
+    print("\n" + "=" * width)
+
+
+def _print_sim_results(gmail, calendar, state, dry_run: bool):
+    """Print what EA did (or would do) after running run_poll on a sim thread."""
+    width = 60
+    label = "would be sent" if dry_run else "sent"
+
+    # Emails
+    print("\n" + "-" * width)
+    print(f"  EMAILS ({label})")
+    print("-" * width)
+    if gmail.sent:
+        for msg in gmail.sent:
+            print(f"\n  To:      {msg.to_addr}")
+            print(f"  Subject: {msg.subject}")
+            print()
+            for line in msg.body.splitlines():
+                print(f"  {line}")
+    else:
+        print("  (none)")
+
+    # Calendar events
+    from ea.sim import DryRunCalendarClient
+
+    if isinstance(calendar, DryRunCalendarClient):
+        created = calendar.would_create
+        deleted = calendar.would_delete
+        updated = calendar.would_update
+        event_label = "would create"
+        del_label = "would delete"
+        upd_label = "would update"
+    else:
+        created = getattr(calendar, "events_created", [])
+        deleted = getattr(calendar, "events_deleted", [])
+        updated = getattr(calendar, "events_updated", [])
+        event_label = "created"
+        del_label = "deleted"
+        upd_label = "updated"
+
+    if created or deleted or updated:
+        print("\n" + "-" * width)
+        print("  CALENDAR EVENTS")
+        print("-" * width)
+        for ev in created:
+            start = ev.get("start", "")
+            end = ev.get("end", "")
+            attendees = ", ".join(ev.get("attendees") or [])
+            print(f"\n  {event_label.upper()}: {ev.get('topic', '(no topic)')}")
+            if start:
+                print(f"    Start:     {start}")
+            if end:
+                print(f"    End:       {end}")
+            if attendees:
+                print(f"    Attendees: {attendees}")
+            if ev.get("location"):
+                print(f"    Location:  {ev['location']}")
+        for eid in deleted:
+            print(f"\n  {del_label.upper()}: event {eid}")
+        for eid, start, end in updated:
+            print(f"\n  {upd_label.upper()}: event {eid}  {start} → {end}")
+
+    # State
+    print("\n" + "-" * width)
+    print("  STATE")
+    print("-" * width)
+    entries = state.all()
+    if entries:
+        for tid, entry in entries.items():
+            etype = entry.get("type", "?")
+            topic = (
+                entry.get("topic")
+                or (entry.get("schedule_result") or {}).get("topic")
+                or "?"
+            )
+            print(f"  {tid}: {etype} — {topic}")
+    else:
+        print("  (none — thread fully resolved)")
+
+    # Labels
+    thread = gmail.get_thread("sim-thread-1")
+    if thread and thread.label_ids:
+        print("\n" + "-" * width)
+        print("  LABELS APPLIED")
+        print("-" * width)
+        print(f"  {', '.join(thread.label_ids)}")
+
+    print()
+
+
+def _load_config_and_creds(credentials_file=None, token_file=None):
+    from ea.config import load_config
+    from ea.auth import load_creds
+
+    config = load_config()
+    creds = load_creds(credentials_file=credentials_file, token_file=token_file)
+    return config, creds
+
+
+def run_convo(
+    messages: list[str],
+    from_addr: str,
+    subject: str,
+    execute: bool = False,
+    credentials_file=None,
+    token_file=None,
+):
+    """Simulate a multi-turn email conversation through the EA poll loop."""
+    from ea.calendar import CalendarClient
+    from ea.poll import run_poll
+    from ea.state import StateStore
+    from ea.sim import SimGmailClient, DryRunCalendarClient
+
+    config, creds = _load_config_and_creds(credentials_file, token_file)
+    my_email = config["user"]["email"]
+    tz_name = config.get("schedule", {}).get("timezone", "UTC")
+
+    thread = _build_sim_thread(messages, my_email, from_addr, subject)
+    gmail = SimGmailClient(my_email=my_email)
+    gmail.seed_thread(thread.id, thread.messages)
+
+    live_calendar = CalendarClient(creds=creds)
+    calendar = live_calendar if execute else DryRunCalendarClient(live_calendar)
+
+    state = StateStore(path=None)
+
+    _print_sim_thread(thread, my_email)
+
+    from ea.parser.meeting_parser import parse_meeting_request
+    from ea.parser.date_normalizer import make_normalizer
+
+    normalizer = make_normalizer(config)
+
+    def parser(text):
+        return parse_meeting_request(text, tz_name=tz_name, normalizer=normalizer)
+
+    run_poll(gmail, calendar, state, config, parser=parser)
+    _print_sim_results(gmail, calendar, state, dry_run=not execute)
+
+
+def run_command(
+    text: str,
+    dry_run: bool = False,
+    credentials_file=None,
+    token_file=None,
+):
+    """Execute an EA command directly from the CLI."""
+    from ea.calendar import CalendarClient
+    from ea.poll import run_poll
+    from ea.state import StateStore
+    from ea.sim import SimGmailClient, DryRunCalendarClient
+
+    config, creds = _load_config_and_creds(credentials_file, token_file)
+    my_email = config["user"]["email"]
+    tz_name = config.get("schedule", {}).get("timezone", "UTC")
+
+    # Wrap as EA: trigger if not already
+    trigger_body = text if text.strip().upper().startswith("EA:") else f"EA: {text}"
+
+    thread = _build_sim_thread(
+        [trigger_body], my_email, my_email, f"EA command: {text[:50]}"
+    )
+    gmail = SimGmailClient(my_email=my_email)
+    gmail.seed_thread(thread.id, thread.messages)
+
+    live_calendar = CalendarClient(creds=creds)
+    calendar = DryRunCalendarClient(live_calendar) if dry_run else live_calendar
+
+    state = StateStore(path=None)
+
+    _print_sim_thread(thread, my_email)
+
+    from ea.parser.meeting_parser import parse_meeting_request
+    from ea.parser.date_normalizer import make_normalizer
+
+    normalizer = make_normalizer(config)
+
+    def parser(text_):
+        return parse_meeting_request(text_, tz_name=tz_name, normalizer=normalizer)
+
+    run_poll(gmail, calendar, state, config, parser=parser)
+    _print_sim_results(gmail, calendar, state, dry_run=dry_run)
+
+
 def run_interactive():
     print("\n🤖 EA Assistant — Interactive Mode")
     print("Paste your meeting request text. Enter a blank line when done.")
@@ -359,6 +588,10 @@ def print_help():
         "  DEBUGGING",
         '    parse "<text>"        Parse a meeting request from text',
         "    parse --file FILE      Parse from a file",
+        '    convo "msg1" "msg2"   Simulate an email thread (dry-run by default)',
+        "    convo --execute ...    Simulate and actually create calendar events",
+        '    command "Book..."     Execute an EA command (creates event)',
+        "    command --dry-run ...  Preview without creating events",
         "    testdata              Parse all .txt files in testdata/",
         "    reset                 Clear state.json to start fresh",
         "",
@@ -456,6 +689,54 @@ def main():
     file_p.add_argument("text", nargs="?", help="Meeting request text")
     file_p.add_argument("--file", "-f", help="Path to a text file")
 
+    # --- convo subcommand ---
+    convo_p = subparsers.add_parser(
+        "convo",
+        help="Simulate a multi-turn email thread through the EA poll loop (dry-run by default)",
+    )
+    convo_p.add_argument(
+        "messages",
+        nargs="+",
+        metavar="MESSAGE",
+        help="Thread messages in order (alternate external/owner; first is external unless it starts with 'EA:')",
+    )
+    convo_p.add_argument(
+        "--from",
+        dest="from_addr",
+        default="sender@example.com",
+        metavar="EMAIL",
+        help="External party's email address (default: sender@example.com)",
+    )
+    convo_p.add_argument(
+        "--subject",
+        default=None,
+        metavar="TEXT",
+        help="Thread subject (default: first 50 chars of first message)",
+    )
+    convo_p.add_argument(
+        "--execute",
+        action="store_true",
+        help="Actually create calendar events (default is dry-run / preview only)",
+    )
+    _add_auth_args(convo_p)
+
+    # --- command subcommand ---
+    cmd_p = subparsers.add_parser(
+        "command",
+        help="Execute an EA command directly from the CLI",
+    )
+    cmd_p.add_argument(
+        "text",
+        metavar="COMMAND",
+        help="Natural-language EA command, e.g. 'Book a 2pm meeting with bob@example.com on Tuesday'",
+    )
+    cmd_p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview what would happen without creating events",
+    )
+    _add_auth_args(cmd_p)
+
     args = parser.parse_args()
 
     if args.help or args.command in (None, "help"):
@@ -463,8 +744,8 @@ def main():
         sys.exit(0)
 
     # auth / poll / run don't need ANTHROPIC_API_KEY at startup —
-    # but parse commands do.
-    if args.command in ("parse", "testdata"):
+    # but parse/convo/command do.
+    if args.command in ("parse", "testdata", "convo", "command"):
         if not os.environ.get("ANTHROPIC_API_KEY"):
             print("ANTHROPIC_API_KEY environment variable is not set.")
             sys.exit(1)
@@ -571,6 +852,25 @@ def main():
             run_text(args.text)
         else:
             file_p.print_help()
+
+    elif args.command == "convo":
+        subject = args.subject or args.messages[0][:50]
+        run_convo(
+            messages=args.messages,
+            from_addr=args.from_addr,
+            subject=subject,
+            execute=args.execute,
+            credentials_file=getattr(args, "credentials", None),
+            token_file=getattr(args, "token", None),
+        )
+
+    elif args.command == "command":
+        run_command(
+            text=args.text,
+            dry_run=args.dry_run,
+            credentials_file=getattr(args, "credentials", None),
+            token_file=getattr(args, "token", None),
+        )
 
     else:
         print_help()
