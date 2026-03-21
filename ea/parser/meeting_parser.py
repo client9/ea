@@ -7,11 +7,97 @@ and calendar blocking commands using the Claude API.
 
 import json
 import os
+from datetime import datetime, timedelta, timezone
 
 import anthropic
 
 from ea.llm_util import strip_json_fences
+from ea.log import get_logger
 from ea.network import call_with_retry
+
+_log = get_logger(__name__)
+
+_MAX_TOPIC_LEN = 200
+_MAX_ATTENDEE_LEN = 200
+_MAX_DURATION = 480  # 8 hours
+
+
+def validate_parsed(parsed: dict, thread_id: str = "") -> None:
+    """Raise ValueError if any scheduling field looks malicious or malformed.
+
+    Called immediately after json.loads in parse_meeting_request, before
+    datetime normalization. Any violation is logged as a WARNING so the owner
+    can distinguish legitimate parse problems from prompt injection attempts
+    (SEC-2).
+    """
+
+    def _fail(field: str, value, reason: str) -> None:
+        _log.warning(
+            "Rejected parsed output — field validation failed",
+            extra={
+                "thread_id": thread_id,
+                "failing_field": field,
+                "value": repr(value)[:200],
+            },
+        )
+        raise ValueError(f"{field}: {reason}")
+
+    # --- topic ---
+    topic = parsed.get("topic")
+    if topic is not None:
+        if not isinstance(topic, str):
+            _fail("topic", topic, "must be a string")
+        if "\n" in topic or "\r" in topic:
+            _fail("topic", topic, "contains newline")
+        if len(topic) > _MAX_TOPIC_LEN:
+            _fail("topic", topic, f"exceeds {_MAX_TOPIC_LEN} chars")
+
+    # --- attendees ---
+    attendees = parsed.get("attendees")
+    if attendees is not None:
+        if not isinstance(attendees, list):
+            _fail("attendees", attendees, "must be a list")
+        for a in attendees:
+            if not isinstance(a, str):
+                _fail("attendees", a, "each entry must be a string")
+            if "\n" in a or "\r" in a:
+                _fail("attendees", a, "entry contains newline")
+            if len(a) > _MAX_ATTENDEE_LEN:
+                _fail("attendees", a, f"entry exceeds {_MAX_ATTENDEE_LEN} chars")
+
+    # --- duration_minutes ---
+    dur = parsed.get("duration_minutes")
+    if dur is not None:
+        if not isinstance(dur, (int, float)) or dur <= 0 or dur > _MAX_DURATION:
+            _fail("duration_minutes", dur, f"must be 1–{_MAX_DURATION}")
+
+    # --- proposed_times[*].datetimes ---
+    now = datetime.now(timezone.utc)
+    past_limit = now - timedelta(days=30)
+    future_limit = now + timedelta(days=730)
+
+    for pt in parsed.get("proposed_times") or []:
+        for iso in pt.get("datetimes") or []:
+            if not isinstance(iso, str):
+                _fail("proposed_times.datetimes", iso, "entry must be a string")
+            # All-day date strings (YYYY-MM-DD) — skip range check
+            if len(iso) == 10 and iso[4:5] == "-" and iso[7:8] == "-":
+                continue
+            try:
+                dt = datetime.fromisoformat(iso)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+            except ValueError:
+                _fail("proposed_times.datetimes", iso, "not a valid ISO 8601 datetime")
+            if dt < past_limit:
+                _fail(
+                    "proposed_times.datetimes", iso, "too far in the past (> 30 days)"
+                )
+            if dt > future_limit:
+                _fail(
+                    "proposed_times.datetimes", iso, "too far in the future (> 2 years)"
+                )
+
 
 SYSTEM_PROMPT = """You are an assistant that parses five types of input:
 
@@ -166,6 +252,11 @@ def parse_meeting_request(text: str, tz_name: str = "UTC") -> dict:
             "error": f"Failed to parse Claude response as JSON: {e}",
             "raw_response": raw,
         }
+
+    try:
+        validate_parsed(parsed)
+    except ValueError as e:
+        return {"error": f"Field validation failed: {e}", "raw_response": raw}
 
     # Convert normalized phrases → datetimes (UTC for timed events, local dates for all-day).
     parsed.setdefault("times_explicitly_specified", False)

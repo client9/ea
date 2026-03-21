@@ -9,8 +9,6 @@ Tests for the ignore/dismiss intent:
 Does NOT test the CLI _run_dismiss() since that requires live Google auth.
 """
 
-import pytest
-
 from ea.calendar import CalendarClient
 from ea.poll import _DISMISS_RE, run_poll
 from ea.responder import handle_ignore_result

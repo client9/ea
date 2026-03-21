@@ -1283,7 +1283,7 @@ and required no changes.
 - Subdomain spoof (`me@example.com.evil.com`) → blocked
 - Legitimate display-name form (`Nick G <me@example.com>`) → still triggers
 
-### SEC-2. Scheduling-scope enforcement (prompt injection defense)
+### SEC-2. Scheduling-scope enforcement (prompt injection defense) ✅ DONE
 The parser calls Claude with user-controlled email text as input. A malicious
 or accidental EA: command could contain instructions designed to manipulate
 Claude's output — returning an intent or action that has nothing to do with
@@ -1307,57 +1307,32 @@ is the attack surface to lock down.
 
 **Two layers:**
 
-**Layer 1 — Intent allowlist (already partially in place):**
-`poll.py` already dispatches only on known intents: `meeting_request`,
-`suggest_times`, `block_time`, `cancel_event`, `reschedule`. Unknown intents
-send a parse-error notification and stop. This is the right behavior, but it
-should be made explicit and documented as a security boundary — not just a
-fallback.
+**Layer 1 — Intent allowlist (`ea/poll.py`):**
+`_ALLOWED_INTENTS` set gates the Pass 1 dispatch block. Any intent not in the
+set is logged at WARNING ("possible prompt injection") and redirected to the
+parse-error email path. Known intents: `meeting_request`, `suggest_times`,
+`block_time`, `cancel_event`, `reschedule`, `ignore`, `none`.
 
-Harden by adding an explicit check before dispatch:
-```python
-ALLOWED_INTENTS = {
-    "meeting_request", "suggest_times", "block_time",
-    "cancel_event", "reschedule", "none",
-}
-if intent not in ALLOWED_INTENTS:
-    # treat as parse error, log as security warning, do not act
-```
+**Layer 2 — Field content validation (`ea/parser/meeting_parser.py`):**
+`validate_parsed(parsed, thread_id)` is called immediately after `json.loads`,
+before datetime normalization. Raises `ValueError` on any violation; the caller
+returns `{"error": "Field validation failed: ..."}`. Checks:
 
-**Layer 2 — Field content validation:**
-After parsing, validate that scheduling-relevant fields contain plausible values
-and that no unexpected fields are present that could influence downstream
-behavior:
-
-- `attendees` must be a list of strings that look like email addresses
-  (RFC 5322 local-part + domain pattern; no scripts, URLs, or multi-line values)
-- `topic` is capped at a reasonable length (e.g. 200 chars) and must not
-  contain newlines — a topic with embedded newlines could corrupt outgoing
-  email subjects
-- `duration_minutes` must be a positive integer within a sane range (e.g. 1–480)
-- `proposed_times[*].datetimes` must parse cleanly as ISO 8601; reject entries
-  that are far in the past (> 30 days ago) or implausibly far in the future
-  (> 2 years)
+- `topic`: string, no newlines/CR, ≤ 200 chars
+- `attendees`: list of strings, no newlines/CR, each ≤ 200 chars
+- `duration_minutes`: 1–480 if present
+- `proposed_times[*].datetimes`: valid ISO 8601; not > 30 days past or > 2
+  years future. All-day `YYYY-MM-DD` strings (identified by length-10 + dash
+  pattern) skip the range check.
 
 **Logging:**
-Any validation failure should be logged at WARNING level with the raw intent
-and the failing field, so the owner can review whether a legitimate command was
-mishandled or a prompt injection attempt occurred:
-```json
-{"level": "WARNING", "msg": "Rejected parsed output — field validation failed",
- "thread_id": "...", "intent": "meeting_request", "failing_field": "attendees",
- "value": "not-an-email"}
-```
+Both layers log at WARNING level with structured fields (`thread_id`,
+`failing_field`, `value`) so the owner can distinguish legitimate parse
+problems from injection attempts in `ea.log`.
 
-**Implementation:**
-- `ea/parser/meeting_parser.py` — new `validate_parsed(parsed: dict) -> None`
-  function. Raises `ValueError` with a descriptive message on any violation.
-  Called immediately after `json.loads` in `parse_meeting_request`, before the
-  datetime normalization step.
-- `ea/poll.py` — add the explicit intent allowlist check (Layer 1) at the top
-  of the Pass 1 dispatch block.
-- Tests: a `test_security.py` covering both layers — injected parser output
-  with bad intents, malformed attendees, oversized topics, out-of-range dates.
+**Tests:** `tests/test_security.py` — 36 tests covering both layers: injected
+parser output with bad intents, malformed attendees, oversized topics,
+out-of-range dates, and integration via monkeypatched `parse_meeting_request`.
 
 ### SEC-3. Authenticated-received-chain (ARC) / SPF+DKIM verification
 SEC-1 confirms the From address string matches the owner's email, but a

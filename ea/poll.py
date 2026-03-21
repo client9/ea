@@ -32,6 +32,19 @@ from ea.state import StateStore
 
 EA_TERMINAL_LABELS = {"ea-scheduled", "ea-notified", "ea-cancelled", "ea-expired"}
 
+# Security: only these intents may be dispatched. Any other value returned by
+# the parser is treated as a parse error and logged as a potential prompt
+# injection attempt (SEC-2).
+_ALLOWED_INTENTS = {
+    "meeting_request",
+    "suggest_times",
+    "block_time",
+    "cancel_event",
+    "reschedule",
+    "ignore",
+    "none",
+}
+
 
 def _resolve_duration(parsed: dict, config: dict) -> dict:
     """Fill in duration_minutes from config defaults when the parser returned null.
@@ -154,6 +167,13 @@ def run_poll(
             parsed = parser(thread_text)
             intent = parsed.get("intent")
             topic = parsed.get("topic") or subject
+
+            if intent not in _ALLOWED_INTENTS:
+                _log.warning(
+                    "Rejected parsed output — unknown intent (possible prompt injection)",
+                    extra={"thread_id": thread.id, "intent": intent},
+                )
+                intent = None  # fall through to parse-error email path below
 
             if dry_run:
                 print(
