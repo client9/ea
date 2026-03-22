@@ -211,7 +211,7 @@ class TestBuildDigestContent:
 
     def test_subject_prefix(self):
         subject, _ = self._build()
-        assert subject.startswith("EA: Daily digest —")
+        assert subject.startswith("Daily digest —")
 
     def test_event_today_appears_in_body(self):
         _, body = self._build(STANDUP_EVENT)

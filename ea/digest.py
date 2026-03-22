@@ -505,7 +505,7 @@ def build_digest(
     date_heading = target_dt.strftime("%A, %B %-d, %Y")
     date_short = target_dt.strftime("%A, %B %-d")
 
-    subject = f"EA: Daily digest — {date_short}"
+    subject = f"Daily digest — {date_short}"
 
     # --- Events for the target date ---
     time_min, time_max = get_today_window(tz_name, for_date=for_date)
