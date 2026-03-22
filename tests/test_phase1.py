@@ -643,3 +643,171 @@ class TestFindSlots:
         for slot in slots:
             start = datetime.fromisoformat(slot["start"])
             assert start.date().isoformat() != "2026-03-19"
+
+    def test_restrict_end_date_spans_multiple_days(self):
+        """restrict_end_date allows searching a date range (e.g. 'next week').
+        With Monday fully blocked, slots come from Tue and Wed — proving the
+        range is searched rather than clamped to a single day."""
+        from datetime import date
+        from zoneinfo import ZoneInfo
+
+        # Block all of Monday (00:00–24:00 UTC covers the whole day)
+        calendar = CalendarClient(
+            fixture_data={
+                "calendars": {
+                    MY_EMAIL: {
+                        "busy": [
+                            {
+                                "start": "2026-03-23T00:00:00Z",
+                                "end": "2026-03-24T00:00:00Z",
+                            }
+                        ]
+                    }
+                }
+            }
+        )
+        slots = find_slots(
+            attendees=[MY_EMAIL],
+            duration_minutes=30,
+            working_hours=self.WORKING,
+            preferred_hours=self.PREFERRED,
+            tz_name=self.TZ,
+            calendar=calendar,
+            n=3,
+            now=self.NOW,
+            restrict_to_date=date(2026, 3, 23),  # Monday (fully blocked)
+            restrict_end_date=date(2026, 3, 25),  # Wednesday
+        )
+        tz = ZoneInfo(self.TZ)
+        assert len(slots) > 0
+        dates = {
+            datetime.fromisoformat(s["start"]).astimezone(tz).date() for s in slots
+        }
+        # No Monday slots (blocked); all within Tue–Wed
+        for d in dates:
+            assert date(2026, 3, 24) <= d <= date(2026, 3, 25)
+        # Results come from days beyond restrict_to_date
+        assert len(dates) > 0
+
+    def test_restrict_end_date_without_restrict_to_date_is_ignored(self):
+        """restrict_end_date alone (no restrict_to_date) has no effect — normal lookahead used."""
+        from datetime import date
+        from zoneinfo import ZoneInfo
+
+        calendar = CalendarClient(fixture_data={"calendars": {MY_EMAIL: {"busy": []}}})
+        slots = find_slots(
+            attendees=[MY_EMAIL],
+            duration_minutes=30,
+            working_hours=self.WORKING,
+            preferred_hours=self.PREFERRED,
+            tz_name=self.TZ,
+            calendar=calendar,
+            n=3,
+            now=self.NOW,
+            restrict_end_date=date(2026, 3, 25),  # no restrict_to_date
+        )
+        # Should still return slots from normal lookahead starting Thursday
+        assert len(slots) > 0
+        tz = ZoneInfo(self.TZ)
+        first = datetime.fromisoformat(slots[0]["start"]).astimezone(tz).date()
+        assert first >= self.NOW.astimezone(ZoneInfo(self.TZ)).date()
+
+    def test_preferred_slots_not_crowded_out_by_early_working_slots(self):
+        """Preferred slots later in the day must win even when many early
+        working-hour slots fill the candidate buffer first.
+
+        Regression: the n*3 early-stop caused working slots from 9am to fill
+        the buffer before preferred slots at 2pm were ever collected.
+        """
+        from datetime import date
+        from zoneinfo import ZoneInfo
+
+        # Preferred hours: 14:00–17:00 (2pm–5pm).  Working: 09:00–17:00.
+        # Monday preferred is fully busy; Tuesday preferred is open.
+        narrow_preferred = {
+            "monday": {"start": "14:00", "end": "17:00"},
+            "tuesday": {"start": "14:00", "end": "17:00"},
+        }
+        wide_working = {
+            "monday": {"start": "09:00", "end": "17:00"},
+            "tuesday": {"start": "09:00", "end": "17:00"},
+        }
+        calendar = CalendarClient(
+            fixture_data={
+                "calendars": {
+                    MY_EMAIL: {
+                        "busy": [
+                            # Block Monday preferred (14:00–17:00 EDT = 18:00–21:00 UTC)
+                            {
+                                "start": "2026-03-23T18:00:00Z",
+                                "end": "2026-03-23T21:00:00Z",
+                            },
+                        ]
+                    }
+                }
+            }
+        )
+        slots = find_slots(
+            attendees=[MY_EMAIL],
+            duration_minutes=30,
+            working_hours=wide_working,
+            preferred_hours=narrow_preferred,
+            tz_name=self.TZ,
+            calendar=calendar,
+            n=3,
+            now=self.NOW,
+            restrict_to_date=date(2026, 3, 23),  # Monday
+            restrict_end_date=date(2026, 3, 24),  # Tuesday
+        )
+        assert len(slots) == 3
+        # All returned slots must be preferred (Tuesday 2pm–5pm)
+        assert all(s["slot_type"] == "preferred" for s in slots)
+        tz = ZoneInfo(self.TZ)
+        for s in slots:
+            local = datetime.fromisoformat(s["start"]).astimezone(tz)
+            assert local.date() == date(2026, 3, 24)  # Tuesday
+            assert local.hour >= 14  # 2pm or later
+
+    def test_restrict_end_date_prefers_preferred_hours_across_range(self):
+        """When searching a week range, preferred slots from later days are returned
+        even if earlier days have only working-hours slots available."""
+        from datetime import date
+        from zoneinfo import ZoneInfo
+
+        # Mon Mar 23 preferred hours (10–16 EDT = 14–20 UTC) fully busy.
+        # Tue Mar 24 preferred hours free.  Expect Tuesday preferred slots.
+        calendar = CalendarClient(
+            fixture_data={
+                "calendars": {
+                    MY_EMAIL: {
+                        "busy": [
+                            # Block all of Monday preferred hours (10am–4pm EDT)
+                            {
+                                "start": "2026-03-23T14:00:00Z",
+                                "end": "2026-03-23T20:00:00Z",
+                            },
+                        ]
+                    }
+                }
+            }
+        )
+        slots = find_slots(
+            attendees=[MY_EMAIL],
+            duration_minutes=30,
+            working_hours=self.WORKING,
+            preferred_hours=self.PREFERRED,
+            tz_name=self.TZ,
+            calendar=calendar,
+            n=3,
+            now=self.NOW,
+            restrict_to_date=date(2026, 3, 23),  # Monday
+            restrict_end_date=date(2026, 3, 27),  # Friday
+        )
+        assert len(slots) == 3
+        # All returned slots should be preferred (from Tue–Fri)
+        assert all(s["slot_type"] == "preferred" for s in slots)
+        tz = ZoneInfo(self.TZ)
+        # None should be on Monday (Monday preferred is fully blocked)
+        for s in slots:
+            d = datetime.fromisoformat(s["start"]).astimezone(tz).date()
+            assert d != date(2026, 3, 23)

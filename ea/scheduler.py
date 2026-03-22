@@ -247,6 +247,7 @@ def find_slots(
     lookahead_days: int = 7,
     now: datetime | None = None,
     restrict_to_date: "date | None" = None,
+    restrict_end_date: "date | None" = None,
     time_after: "time | None" = None,
     time_before: "time | None" = None,
 ) -> list[dict]:
@@ -254,9 +255,12 @@ def find_slots(
     Return up to n free slots over the next lookahead_days, sorted by
     priority (preferred → working).
 
-    restrict_to_date: if set, only return slots on that specific local date,
-    ignoring working_hours day restrictions (so e.g. Friday slots are found
-    even if Friday isn't in working_hours).
+    restrict_to_date: if set, begin the search on this local date (and end on
+    restrict_end_date if provided, else the same date). Ignores working_hours
+    day restrictions so e.g. Friday slots are found even if Friday isn't listed.
+
+    restrict_end_date: if set alongside restrict_to_date, search the inclusive
+    date range [restrict_to_date, restrict_end_date] instead of a single day.
 
     time_after:  if set, only consider slots starting at or after this local time.
     time_before: if set, only consider slots starting before this local time.
@@ -283,14 +287,20 @@ def find_slots(
 
     if restrict_to_date is not None:
         current_day = restrict_to_date
-        end_day = restrict_to_date
+        end_day = (
+            restrict_end_date if restrict_end_date is not None else restrict_to_date
+        )
 
     # Default search hours when restrict_to_date is used and the day has no
     # working_hours entry — search a broad window so the user's explicit day
     # choice is honoured even if it falls outside normal working hours.
     _FALLBACK_HOURS = {"start": "08:00", "end": "18:00"}
 
-    while current_day <= end_day and len(candidates) < n * 3:
+    # When a date range is explicitly set, skip the n*3 early-stop so the
+    # entire range is scanned.  Without it, early working-hour slots fill the
+    # buffer before preferred-hour slots later in the day/week are reached.
+    bounded_range = restrict_to_date is not None
+    while current_day <= end_day and (bounded_range or len(candidates) < n * 3):
         day_name = current_day.strftime("%A").lower()
         wh = working_hours.get(day_name)
         if not wh:

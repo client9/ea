@@ -184,18 +184,27 @@ def handle_inbound_result(
 
         schedule = config.get("schedule", {})
 
-        # Extract time-window qualifier from the original proposed_times so that
-        # alternative slots respect constraints like "after 1pm" or "morning".
+        # Extract date range and time-window qualifier from the original proposed_times.
         _busy_time_after, _busy_time_before = None, None
+        _busy_restrict_date = None
+        _busy_restrict_end = None
         _busy_proposed = (result.parsed or {}).get("proposed_times") or []
         if _busy_proposed:
             _busy_entry = _busy_proposed[0]
-            _busy_raw_dt = (_busy_entry.get("datetimes") or [None])[0]
+            _busy_dts = _busy_entry.get("datetimes") or []
+            _busy_raw_dt = _busy_dts[0] if _busy_dts else None
             if _busy_raw_dt:
                 _busy_tz = schedule.get("timezone", "UTC")
                 _busy_anchor = datetime.fromisoformat(_busy_raw_dt).astimezone(
                     ZoneInfo(_busy_tz)
                 )
+                _busy_restrict_date = _busy_anchor.date()
+                if len(_busy_dts) >= 2:
+                    _busy_restrict_end = (
+                        datetime.fromisoformat(_busy_dts[1])
+                        .astimezone(ZoneInfo(_busy_tz))
+                        .date()
+                    )
             else:
                 _busy_anchor = None
             _busy_time_after, _busy_time_before = time_window_bounds(
@@ -212,6 +221,8 @@ def handle_inbound_result(
                 preferred_hours=schedule.get("preferred_hours", {}),
                 tz_name=schedule.get("timezone", "UTC"),
                 calendar=calendar,
+                restrict_to_date=_busy_restrict_date,
+                restrict_end_date=_busy_restrict_end,
                 time_after=_busy_time_after,
                 time_before=_busy_time_before,
             )
@@ -533,17 +544,26 @@ def handle_suggest_times_trigger(
     # local date so find_slots can restrict its search to that day.  Any directional
     # qualifier (e.g. "after 1pm", "morning") is extracted and passed as time bounds.
     restrict_to_date = None
+    restrict_end_date = None
     time_after, time_before = None, None
     proposed_times = parsed.get("proposed_times") or []
     if proposed_times:
         tz_name_local = schedule.get("timezone", "UTC")
         entry = proposed_times[0]
-        raw_dt = (entry.get("datetimes") or [None])[0]
+        datetimes = entry.get("datetimes") or []
+        raw_dt = datetimes[0] if datetimes else None
         if raw_dt:
             anchor_dt = datetime.fromisoformat(raw_dt).astimezone(
                 ZoneInfo(tz_name_local)
             )
             restrict_to_date = anchor_dt.date()
+            # Two datetimes signals a range (e.g. "next week" → Mon + Fri).
+            if len(datetimes) >= 2:
+                restrict_end_date = (
+                    datetime.fromisoformat(datetimes[1])
+                    .astimezone(ZoneInfo(tz_name_local))
+                    .date()
+                )
         else:
             anchor_dt = None
         from ea.scheduler import time_window_bounds
@@ -565,6 +585,7 @@ def handle_suggest_times_trigger(
             tz_name=schedule.get("timezone", "UTC"),
             calendar=calendar,
             restrict_to_date=restrict_to_date,
+            restrict_end_date=restrict_end_date,
             time_after=time_after,
             time_before=time_before,
         )
