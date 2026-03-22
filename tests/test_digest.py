@@ -11,7 +11,7 @@ Covers:
   - run_once() integration   — digest triggered inside poll cycle
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 
@@ -27,6 +27,8 @@ from tests.fake_gmail import FakeGmailClient, FakeMsg
 
 MY_EMAIL = "me@example.com"
 TZ = "America/Los_Angeles"
+# Date all test events live on — passed to build_digest so the calendar window matches.
+EVENTS_DATE = date(2026, 3, 21)
 
 # Monday 2026-03-23 10:00 AM PDT = 17:00 UTC
 MON_10AM_LOCAL = datetime(2026, 3, 23, 10, 0, tzinfo=ZoneInfo(TZ))
@@ -186,7 +188,7 @@ class TestBuildDigestContent:
         cal = free_calendar(*events)
         st = state or StateStore(path=None)
         cfg = config or CONFIG_WITH_DIGEST
-        return build_digest(cfg, cal, st)
+        return build_digest(cfg, cal, st, for_date=EVENTS_DATE)
 
     def test_returns_subject_and_body_tuple(self):
         subject, body = self._build()

@@ -410,18 +410,6 @@ Required:
 
 **Dependency:** `tzlocal` covers the OS fallback on macOS, Linux, and Windows.
 
-### OP-8. Config validation at startup
-Currently a missing or malformed `config.toml` causes confusing crashes mid-poll.
-Validate the config once at startup before any API calls are made.
-
-Required checks:
-- `user.email` is present and looks like an email address
-- `auth.credentials_file` and `auth.token_file` paths exist
-- `schedule.timezone` is a valid IANA timezone name
-- Working/preferred hours are valid `HH:MM` strings and start < end
-
-Fail fast: `"Config error: user.email is required in config.toml"`
-
 ### OP-9. Health monitoring / dead-man's switch
 No current way to know if the process died silently. Options (pick one):
 

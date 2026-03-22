@@ -73,6 +73,13 @@ interview   = 60
 board       = 90
 standup     = 15
 default     = 30
+
+# Optional: daily digest email sent to the owner once per day.
+# Omitting this section disables the digest entirely.
+# send_time is interpreted in the [schedule] timezone (not UTC).
+[digest]
+days      = ["monday", "tuesday", "wednesday", "thursday", "friday"]
+send_time = "07:00"   # HH:MM in the schedule timezone
 ```
 
 ## Architecture

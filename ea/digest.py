@@ -25,13 +25,18 @@ DIGEST_STATE_FILE = "digest_sent.json"
 # ---------------------------------------------------------------------------
 
 
-def should_send_digest(config: dict, now_local: datetime) -> bool:
+def should_send_digest(config: dict, now_local: datetime | None = None) -> bool:
     """Return True if the digest should be sent right now.
 
     Conditions (all must hold):
     - [digest] section is present in config
     - days list is non-empty and today's day name is in it
-    - now_local.time() >= the configured send_time (default "08:00")
+    - current time >= the configured send_time (default "08:00")
+
+    send_time is always interpreted in the timezone from [schedule] → timezone.
+    `now_local` is optional and used for testing; defaults to the current time.
+    Any timezone-aware datetime is converted to the schedule timezone before
+    comparison — passing UTC or any other zone works correctly.
     """
     digest_cfg = config.get("digest")
     if not digest_cfg:
@@ -41,14 +46,25 @@ def should_send_digest(config: dict, now_local: datetime) -> bool:
     if not days:
         return False
 
-    day_name = now_local.strftime("%A").lower()
+    tz_name = config.get("schedule", {}).get("timezone", "UTC")
+    tz = ZoneInfo(tz_name)
+
+    if now_local is None:
+        now_tz = datetime.now(tz)
+    elif now_local.tzinfo is not None:
+        now_tz = now_local.astimezone(tz)
+    else:
+        # Treat naive datetimes as UTC
+        now_tz = now_local.replace(tzinfo=timezone.utc).astimezone(tz)
+
+    day_name = now_tz.strftime("%A").lower()
     if day_name not in [d.lower() for d in days]:
         return False
 
     send_time_str = digest_cfg.get("send_time", "08:00")
     hour, minute = (int(p) for p in send_time_str.split(":"))
     send_time = time(hour, minute)
-    return now_local.time() >= send_time
+    return now_tz.time() >= send_time
 
 
 # ---------------------------------------------------------------------------
