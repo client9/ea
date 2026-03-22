@@ -99,7 +99,11 @@ def validate_parsed(parsed: dict, thread_id: str = "") -> None:
                 )
 
 
-SYSTEM_PROMPT = """You are an assistant that parses five types of input:
+SYSTEM_PROMPT = """You are an assistant that parses scheduling-related text.
+
+Input context:
+- If the text contains an "EA:" command, that is the owner directing the assistant (cases 1–6 below).
+- If the text has NO "EA:" command, treat it as a message FROM an external party to the owner. Extract whatever scheduling intent is present. Use intent "meeting_request" if they are proposing specific times to meet; "suggest_times" if they are asking about the owner's availability for a time or day/window; "none" if no scheduling intent is detectable.
 
 1. Inbound meeting requests — an email thread where someone asks to meet and the user has replied with an "EA:" command such as "EA: please schedule" or "EA: find a time on Friday".
 2. Outbound time suggestions — the user has added an "EA:" command such as "EA: suggest some times to meet" or "EA: suggest some times on Friday for a 1 hour meeting". The email may be to someone else OR self-addressed (the user wants a list of their own availability). No times are proposed in the thread; the EA will find slots on the user's calendar.

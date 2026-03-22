@@ -19,150 +19,65 @@ from ea.triggers import find_ea_trigger
 from ea.config import get_my_email
 
 
-def _print_times(proposed_times: list, label: str = "PROPOSED TIMES"):
-    if not proposed_times:
-        return
-    print(f"\n  🕐 {label}:")
-    for entry in proposed_times:
-        tw = entry.get("time_window")
-        tw_suffix = f"  [window: {tw}]" if tw else ""
-        print(f"     • {entry.get('text', '?')}{tw_suffix}")
-        for iso in entry.get("datetimes", []):
-            print(f"       {iso}")
-
-
 def print_result(text: str, result: dict, source_label: str = ""):
-    """Pretty print the parsed meeting result."""
-    width = 60
-    print("\n" + "=" * width)
-    if source_label:
-        print(f"  SOURCE: {source_label}")
-    print("=" * width)
+    """Print parsed meeting result as a simple table."""
+    W = 14  # label column width
+
+    def row(label, value):
+        if value is not None and value != "" and value != []:
+            print(f"{label:<{W}}{value}")
+
+    print(f"\nparse: {source_label or text[:80]}")
+    print("-" * 50)
 
     if "error" in result:
-        print(f"  ❌ ERROR: {result['error']}")
+        print(f"{'error':<{W}}{result['error']}")
         if "raw_response" in result:
-            print(f"\n  Raw response:\n{result['raw_response']}")
+            print(f"\nraw response:\n{result['raw_response']}")
         return
 
     intent = result.get("intent")
-
-    if intent == "none" or not intent:
-        print("  ℹ️  This does not appear to be a meeting request or calendar command.")
-        print("=" * width + "\n")
+    if not intent or intent == "none":
+        print(f"{'intent':<{W}}none  (no scheduling intent detected)")
         return
 
-    print(f"  🎯 INTENT:      {intent}")
-
-    if intent == "block_time":
-        print(f"  🗓️  BLOCK:       {result.get('topic', 'N/A')}")
-        print(
-            f"  ⏱️  DURATION:    {result.get('duration_minutes', 'Not specified')} min"
-        )
-        print(f"  🌍 TIMEZONE:    {result.get('timezone', 'Not specified')}")
-        _print_times(result.get("proposed_times", []), label="TIME")
-        print("=" * width + "\n")
-        return
-
-    # meeting_request / suggest_times / etc.
-    print(f"  📅 TOPIC:       {result.get('topic', 'N/A')}")
-    print(f"  ⏱️  DURATION:    {result.get('duration_minutes', 'Not specified')} min")
-    print(f"  🌍 TIMEZONE:    {result.get('timezone', 'Not specified')}")
-    print(f"  📍 LOCATION:    {result.get('location', 'Not specified')}")
-    print(f"  🚨 URGENCY:     {result.get('urgency', 'N/A')}")
-
-    attendees = result.get("attendees", [])
-    if attendees:
-        print("\n  👥 ATTENDEES:")
-        for a in attendees:
-            print(f"     • {a}")
-
-    _print_times(result.get("proposed_times", []), label="PROPOSED TIMES")
-
-    ambiguities = result.get("ambiguities", [])
-    if ambiguities:
-        print("\n  ⚠️  AMBIGUITIES:")
-        for a in ambiguities:
-            print(f"     • {a}")
-
-    print("=" * width + "\n")
-
-
-def _print_suggest_preview(result: dict, config: dict | None = None):
-    """Show what the suggest_times email would look like using the live calendar."""
-    from ea.auth import load_creds
-    from ea.calendar import CalendarClient
-    from ea.scheduler import find_slots, time_window_bounds
-    from ea.responder import _format_slot_suggestions
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-
-    width = 60
-    print("\n" + "-" * width)
-    print("  EMAIL PREVIEW (based on your calendar)")
-    print("-" * width)
-
-    try:
-        if config is None:
-            from ea.config import load_config
-
-            config = load_config()
-        creds = load_creds()
-        calendar = CalendarClient(creds=creds)
-    except Exception as e:
-        print(f"  (skipped — could not load calendar: {e})")
-        print("-" * width + "\n")
-        return
-
-    schedule = config.get("schedule", {})
-    tz_name = schedule.get("timezone", "UTC")
-    duration_minutes = result.get("duration_minutes") or 30
-    attendees_parsed = result.get("attendees") or []
-    my_email = config["user"]["email"]
-    all_attendees = [my_email] + [a for a in attendees_parsed if a != my_email]
-
-    restrict_to_date = None
-    time_after, time_before = None, None
-    proposed_times = result.get("proposed_times") or []
-    if proposed_times:
-        entry = proposed_times[0]
-        raw_dt = (entry.get("datetimes") or [None])[0]
-        if raw_dt:
-            anchor_dt = datetime.fromisoformat(raw_dt).astimezone(ZoneInfo(tz_name))
-            restrict_to_date = anchor_dt.date()
-        else:
-            anchor_dt = None
-        time_after, time_before = time_window_bounds(
-            entry.get("time_window"), anchor_dt
-        )
-
-    try:
-        slots = find_slots(
-            attendees=all_attendees,
-            duration_minutes=duration_minutes,
-            working_hours=schedule.get("working_hours", {}),
-            preferred_hours=schedule.get("preferred_hours", {}),
-            tz_name=tz_name,
-            calendar=calendar,
-            restrict_to_date=restrict_to_date,
-            time_after=time_after,
-            time_before=time_before,
-        )
-    except Exception as e:
-        print(f"  (skipped — calendar lookup failed: {e})")
-        print("-" * width + "\n")
-        return
-
-    if not slots:
-        print("  No available slots found in the next 7 days.")
-        print("-" * width + "\n")
-        return
-
-    body = _format_slot_suggestions(
-        slots, owner_tz=tz_name, attendee_tz=result.get("timezone")
+    row("intent", intent)
+    row("topic", result.get("topic"))
+    row("meeting_type", result.get("meeting_type"))
+    row(
+        "duration",
+        f"{result['duration_minutes']} min" if result.get("duration_minutes") else None,
     )
-    print(body)
-    print("-" * width + "\n")
+    row("urgency", result.get("urgency"))
+    row("timezone", result.get("timezone"))
+    row("location", result.get("location"))
+
+    attendees = result.get("attendees") or []
+    if attendees:
+        row("attendees", attendees[0])
+        for a in attendees[1:]:
+            print(f"{'':<{W}}{a}")
+
+    def print_times(times, label):
+        if not times:
+            return
+        print(f"{label:<{W}}")
+        for entry in times:
+            tw = entry.get("time_window")
+            print(f"  text:         {entry.get('text', '?')}")
+            if tw:
+                print(f"  window:       {tw}")
+            for iso in entry.get("datetimes", []):
+                print(f"  datetime:     {iso}")
+
+    print_times(result.get("proposed_times"), "proposed")
+    print_times(result.get("new_proposed_times"), "new times")
+
+    ambiguities = result.get("ambiguities") or []
+    if ambiguities:
+        print(f"{'ambiguities':<{W}}{ambiguities[0]}")
+        for a in ambiguities[1:]:
+            print(f"{'':<{W}}{a}")
 
 
 def run_text(text: str, label: str = ""):
@@ -172,12 +87,9 @@ def run_text(text: str, label: str = ""):
         config = load_config()
         tz_name = config.get("schedule", {}).get("timezone", "UTC")
     except Exception:
-        config = None
         tz_name = "UTC"
     result = parse_meeting_request(text, tz_name=tz_name)
     print_result(text, result, source_label=label or text[:60])
-    if result.get("intent") == "suggest_times":
-        _print_suggest_preview(result, config=config)
 
 
 def run_file(filepath: str):
@@ -596,8 +508,7 @@ def print_help():
         "    auth --check          Show current auth status",
         "",
         "  DEBUGGING",
-        '    parse "<text>"        Parse a meeting request from text',
-        "    parse --file FILE      Parse from a file",
+        '    parse "<text>"        Parse any text and show extracted intent/times',
         '    convo "msg1" "msg2"   Simulate an email thread (dry-run by default)',
         "    convo --execute ...    Simulate and actually create calendar events",
         '    command "Book..."     Execute an EA command (creates event)',
@@ -694,10 +605,9 @@ def main():
     # --- Legacy positional / file commands (parser debugging) ---
     subparsers.add_parser("testdata", help="Parse all files in testdata/")
     file_p = subparsers.add_parser(
-        "parse", help="Parse a meeting request from text or file"
+        "parse", help="Parse a meeting request and show extracted intent/times"
     )
     file_p.add_argument("text", nargs="?", help="Meeting request text")
-    file_p.add_argument("--file", "-f", help="Path to a text file")
 
     # --- convo subcommand ---
     convo_p = subparsers.add_parser(
@@ -856,9 +766,7 @@ def main():
         run_testdata()
 
     elif args.command == "parse":
-        if args.file:
-            run_file(args.file)
-        elif args.text:
+        if args.text:
             run_text(args.text)
         else:
             file_p.print_help()
