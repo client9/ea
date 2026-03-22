@@ -502,6 +502,10 @@ def print_help():
         "    dismiss <id>          Dismiss a pending entry by thread ID",
         "    digest                Print today's calendar digest",
         '    digest <date>         Digest for a specific date (e.g. "tomorrow")',
+        "    digest --style=timeline  Visual hour grid with event bars",
+        "    digest --style=table     Start time + duration; overlaps indented",
+        "    digest --style=list      Multi-line card per event",
+        "    digest --style=free      Free windows ≥ 30 min",
         "",
         "  SETUP",
         "    auth                  Run the Google OAuth2 browser flow",
@@ -593,6 +597,17 @@ def main():
         nargs="?",
         metavar="DATE",
         help='Date to generate digest for, e.g. "tomorrow", "next monday", "2026-04-01"',
+    )
+    digest_parser.add_argument(
+        "--style",
+        choices=["plain", "table", "list", "free", "timeline"],
+        default="plain",
+        help=(
+            "Output style: plain (default), "
+            "table (start time + duration, overlaps indented), "
+            "list (multi-line card per event), "
+            "free (free windows ≥ 30 min)"
+        ),
     )
     _add_auth_args(digest_parser)
 
@@ -748,7 +763,11 @@ def main():
             token_file=getattr(args, "token", None),
         )
         _, body = build_digest(
-            config, CalendarClient(creds=creds), StateStore(), for_date=for_date
+            config,
+            CalendarClient(creds=creds),
+            StateStore(),
+            for_date=for_date,
+            style=args.style,
         )
         print(body)
 
